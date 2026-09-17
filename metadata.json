@@ -1,0 +1,6 @@
+{
+  "name": "Conversor de Texto a Audio - Arcángel Jofiel",
+  "description": "Conversor de texto a audio con voz serena en español latinoamericano y pausas exactas de meditación para la invocación del Arcángel Jofiel.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
