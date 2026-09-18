@@ -6,68 +6,143 @@ export interface BrowserPlaybackHandlers {
   onError: (error: string) => void;
 }
 
-// Helper to find the best native Latin American Spanish voice available in the browser
-export function getBestLatinVoice(): SpeechSynthesisVoice | null {
+// Explicit male names/keywords to strictly reject
+const MALE_NAMES = [
+  "diego", "jorge", "gonzalo", "carlos", "miguel", "raul", "raúl",
+  "pablo", "alvaro", "álvaro", "enrique", "male", "hombre", "masculino",
+  "david", "julio", "manuel", "fernando", "pedro", "jose", "josé",
+  "juan", "paco", "mateo", "santiago", "hector", "héctor", "antonio",
+  "mario", "ricardo", "alberto", "javier", "luis"
+];
+
+// Explicit female Latin names and keywords
+const FEMALE_LATIN_NAMES = [
+  "sabina", "paulina", "dalia", "lupe", "soledad", "francisca",
+  "monica", "mónica", "elena", "helena", "camila", "sofia", "sofía",
+  "lucia", "lucía", "salma", "penelope", "penélope", "valentina",
+  "paloma", "victoria", "jimena", "zira", "female", "mujer", "femenina",
+  "hilda", "esperanza", "marina", "laura", "carmen", "clara"
+];
+
+// Latin American country codes in priority
+const LATIN_CODES = [
+  "es-419", // Español Latinoamericano neutro
+  "es-mx",  // México
+  "es-co",  // Colombia
+  "es-us",  // Estados Unidos (español latino)
+  "es-ar",  // Argentina
+  "es-cl",  // Chile
+  "es-pe",  // Perú
+  "es-cr",  // Costa Rica
+  "es-ve",  // Venezuela
+  "es-gt",  // Guatemala
+];
+
+/**
+ * Returns all available female Latin/Spanish voices on the device
+ */
+export function getAvailableFemaleLatinVoices(): SpeechSynthesisVoice[] {
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) return [];
+  const voices = window.speechSynthesis.getVoices() || [];
+
+  return voices.filter((v) => {
+    const l = v.lang.toLowerCase();
+    const n = v.name.toLowerCase();
+    if (!l.startsWith("es")) return false;
+    const isMale = MALE_NAMES.some((m) => n.includes(m));
+    if (isMale) return false;
+    return true;
+  });
+}
+
+/**
+ * Helper to find strictly the best Latin American Female voice available
+ */
+export function getBestLatinFemaleVoice(preferredName?: string): SpeechSynthesisVoice | null {
   if (typeof window === "undefined" || !("speechSynthesis" in window)) return null;
 
   const voices = window.speechSynthesis.getVoices();
   if (!voices || voices.length === 0) return null;
 
-  // 1. Explicit Latin American locales in priority order (Mexico, Colombia, US Spanish, Latin generic, Argentina, Chile, Peru)
-  const latinCodes = [
-    "es-mx",
-    "es-419",
-    "es-co",
-    "es-us",
-    "es-ar",
-    "es-cl",
-    "es-pe",
-    "es-cr",
-    "es-ve",
-    "es-gt",
-  ];
+  // If user selected a specific preferred voice by name
+  if (preferredName) {
+    const userVoice = voices.find((v) => v.name === preferredName);
+    if (userVoice) return userVoice;
+  }
 
-  // 2. Names of famous Latin American voices
-  const latinNames = [
-    "sabina",
-    "dalia",
-    "paulina",
-    "soledad",
-    "francisca",
-    "diego",
-    "jorge",
-    "gonzalo",
-    "lupe",
-    "carlos",
-    "miguel",
-    "latino",
-    "méxico",
-    "mexico",
-    "colombia",
-  ];
+  // Filter out any male voice explicitly
+  const nonMaleEsVoices = voices.filter((v) => {
+    const l = v.lang.toLowerCase();
+    const n = v.name.toLowerCase();
+    if (!l.startsWith("es")) return false;
+    return !MALE_NAMES.some((m) => n.includes(m));
+  });
 
-  // First check matching locale
-  for (const code of latinCodes) {
-    const match = voices.find((v) => v.lang.toLowerCase().startsWith(code));
+  if (nonMaleEsVoices.length === 0) {
+    // If only generic voices exist, return any Spanish voice
+    return voices.find((v) => v.lang.toLowerCase().startsWith("es")) || voices[0] || null;
+  }
+
+  // 1. First priority: Latin American Spanish voice with known female name
+  for (const code of LATIN_CODES) {
+    const match = nonMaleEsVoices.find((v) => {
+      const l = v.lang.toLowerCase();
+      const n = v.name.toLowerCase();
+      return l.startsWith(code) && FEMALE_LATIN_NAMES.some((f) => n.includes(f));
+    });
     if (match) return match;
   }
 
-  // Next check matching voice name in Spanish
-  const nameMatch = voices.find((v) => {
-    const l = v.lang.toLowerCase();
+  // 2. Second priority: Any Latin American locale (es-419, es-mx, es-co, etc.) non-male
+  for (const code of LATIN_CODES) {
+    const match = nonMaleEsVoices.find((v) => v.lang.toLowerCase().startsWith(code));
+    if (match) return match;
+  }
+
+  // 3. Third priority: Any Spanish voice with known female name
+  const anyFemaleEs = nonMaleEsVoices.find((v) => {
     const n = v.name.toLowerCase();
-    return l.startsWith("es") && latinNames.some((lat) => n.includes(lat));
+    return FEMALE_LATIN_NAMES.some((f) => n.includes(f));
   });
-  if (nameMatch) return nameMatch;
+  if (anyFemaleEs) return anyFemaleEs;
 
-  // Fallback: any Spanish voice that is NOT es-ES (Spain)
-  const nonSpainEs = voices.find(
-    (v) => v.lang.toLowerCase().startsWith("es") && !v.lang.toLowerCase().includes("es-es")
-  );
-  if (nonSpainEs) return nonSpainEs;
+  // 4. Any non-male Spanish voice
+  return nonMaleEsVoices[0];
+}
 
-  // Ultimate fallback to any Spanish voice
-  return voices.find((v) => v.lang.toLowerCase().startsWith("es")) || voices[0] || null;
+// Alias for backwards compatibility
+export const getBestLatinVoice = getBestLatinFemaleVoice;
+
+export interface PlayPrayerOptions {
+  preferredVoiceName?: string;
+  pitch?: number;
+  rate?: number;
+  volume?: number;
+}
+
+export function speakSampleFemaleVoice(
+  preferredVoiceName?: string,
+  pitch = 1.15,
+  rate = 0.85,
+  customText?: string
+) {
+  if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+  window.speechSynthesis.cancel();
+  const sample =
+    customText ||
+    "Amado ser de luz, que la paz y la sabiduría divina iluminen tu camino.";
+  const utterance = new SpeechSynthesisUtterance(sample);
+  const voice = getBestLatinFemaleVoice(preferredVoiceName);
+  if (voice) {
+    utterance.voice = voice;
+    utterance.lang = voice.lang || "es-419";
+  } else {
+    utterance.lang = "es-419";
+  }
+  utterance.rate = rate;
+  utterance.pitch = pitch;
+  utterance.volume = 1.0;
+  window.speechSynthesis.speak(utterance);
 }
 
 class BrowserTtsEngine {
@@ -87,7 +162,8 @@ class BrowserTtsEngine {
 
   public async playPrayer(
     segments: ScriptSegment[],
-    handlers: BrowserPlaybackHandlers
+    handlers: BrowserPlaybackHandlers,
+    options?: PlayPrayerOptions
   ) {
     this.stop();
     this.isCancelled = false;
@@ -98,7 +174,7 @@ class BrowserTtsEngine {
     }
 
     // Force voice list resolution if needed
-    let esVoice = getBestLatinVoice();
+    let esVoice = getBestLatinFemaleVoice(options?.preferredVoiceName);
     if (!esVoice && window.speechSynthesis.getVoices().length === 0) {
       await new Promise<void>((resolve) => {
         const handler = () => {
@@ -108,8 +184,12 @@ class BrowserTtsEngine {
         window.speechSynthesis.addEventListener("voiceschanged", handler);
         setTimeout(resolve, 500); // safety fallback
       });
-      esVoice = getBestLatinVoice();
+      esVoice = getBestLatinFemaleVoice(options?.preferredVoiceName);
     }
+
+    const basePitch = options?.pitch ?? 1.15;
+    const baseRate = options?.rate ?? 0.85;
+    const baseVolume = options?.volume ?? 0.9;
 
     for (let i = 0; i < segments.length; i++) {
       if (this.isCancelled) return;
@@ -138,9 +218,9 @@ class BrowserTtsEngine {
           } else {
             utterance.lang = "es-419";
           }
-          utterance.rate = 0.85; // Serene, meditative tempo
-          utterance.pitch = seg.isWhisper ? 0.75 : 0.95; // Warm pitch
-          utterance.volume = seg.isWhisper ? 0.45 : 0.85;
+          utterance.rate = baseRate;
+          utterance.pitch = seg.isWhisper ? basePitch * 0.9 : basePitch;
+          utterance.volume = seg.isWhisper ? baseVolume * 0.6 : baseVolume;
 
           utterance.onend = () => resolve();
           utterance.onerror = (e) => {

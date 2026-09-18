@@ -1,154 +1,454 @@
-import React from "react";
-import { VoiceOption } from "../types";
-import { Mic, Sliders, CheckCircle2, Info } from "lucide-react";
+import React, { useState, useEffect } from "react";
+import { AdvancedAudioSettings } from "../types";
+import {
+  Mic,
+  Volume2,
+  Waves,
+  Sliders,
+  Moon,
+  Sparkles,
+  RefreshCw,
+  User,
+  Heart,
+  PlayCircle,
+  Check,
+} from "lucide-react";
+import {
+  getAvailableFemaleLatinVoices,
+  speakSampleFemaleVoice,
+  getBestLatinFemaleVoice,
+} from "../utils/browserTts";
 
 interface VoiceSettingsProps {
-  voices: VoiceOption[];
-  selectedVoice: string;
-  onSelectVoice: (voiceId: string) => void;
-  toneText: string;
-  onChangeTone: (newTone: string) => void;
-  pauseMultiplier: number;
-  onChangePauseMultiplier: (val: number) => void;
+  settings: AdvancedAudioSettings;
+  onSettingsChange: (settings: AdvancedAudioSettings) => void;
 }
 
 export const VoiceSettings: React.FC<VoiceSettingsProps> = ({
-  voices,
-  selectedVoice,
-  onSelectVoice,
-  toneText,
-  onChangeTone,
-  pauseMultiplier,
-  onChangePauseMultiplier,
+  settings,
+  onSettingsChange,
 }) => {
+  const [deviceVoices, setDeviceVoices] = useState<SpeechSynthesisVoice[]>([]);
+  const [isPreviewPlaying, setIsPreviewPlaying] = useState<boolean>(false);
+
+  useEffect(() => {
+    const loadVoices = () => {
+      const v = getAvailableFemaleLatinVoices();
+      setDeviceVoices(v);
+    };
+    loadVoices();
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      window.speechSynthesis.addEventListener("voiceschanged", loadVoices);
+      return () => {
+        window.speechSynthesis.removeEventListener("voiceschanged", loadVoices);
+      };
+    }
+  }, []);
+
+  const handleToggle = (key: keyof AdvancedAudioSettings) => {
+    const updated = { ...settings, [key]: !settings[key] as any };
+    onSettingsChange(updated);
+  };
+
+  const handleSlider = (
+    key: "voiceVolume" | "ambientVolume" | "voicePitch" | "voiceSpeed",
+    value: number
+  ) => {
+    const updated = { ...settings, [key]: value };
+    onSettingsChange(updated);
+  };
+
+  const handleIntensity = (intensity: "low" | "medium" | "high") => {
+    const updated = { ...settings, visualIntensity: intensity };
+    onSettingsChange(updated);
+  };
+
+  const handleVoiceType = (
+    type: "gemini_aoede" | "gemini_kore" | "browser_female"
+  ) => {
+    const updated = { ...settings, femaleVoiceType: type };
+    onSettingsChange(updated);
+  };
+
+  const handleBrowserVoiceSelect = (voiceName: string) => {
+    const updated = { ...settings, browserVoiceName: voiceName };
+    onSettingsChange(updated);
+  };
+
+  const testFemaleVoice = () => {
+    setIsPreviewPlaying(true);
+    speakSampleFemaleVoice(
+      settings.browserVoiceName,
+      settings.voicePitch || 1.15,
+      settings.voiceSpeed || 0.85
+    );
+    setTimeout(() => setIsPreviewPlaying(false), 3000);
+  };
+
   return (
     <div
       id="voice-settings-panel"
-      className="bg-white/85 backdrop-blur-md rounded-3xl p-6 md:p-8 border border-amber-200/80 shadow-lg space-y-6 text-stone-800"
+      className="bg-neutral-950 text-white p-6 sm:p-7 rounded-3xl max-w-xl mx-auto shadow-2xl border border-neutral-800 transition-all"
     >
-      <div className="flex items-center space-x-3 border-b border-stone-200 pb-4">
-        <div className="w-10 h-10 rounded-2xl bg-amber-100 border border-amber-300 flex items-center justify-center text-amber-800">
-          <Mic className="w-5 h-5" />
-        </div>
-        <div>
-          <h3 className="text-base font-semibold text-amber-950 font-sacred">
-            Configuración de Voz y Tono
-          </h3>
-          <p className="text-xs text-stone-500">
-            Parámetros de locución, acento latinoamericano y pausas de silencio
-          </p>
+      <div className="flex items-center justify-between border-b border-neutral-800 pb-4 mb-6">
+        <div className="flex items-center space-x-3">
+          <div className="w-10 h-10 rounded-2xl bg-amber-500/15 border border-amber-400/30 flex items-center justify-center text-amber-400">
+            <Sliders className="w-5 h-5" />
+          </div>
+          <div>
+            <h2 className="text-lg font-bold text-amber-300 tracking-wide font-sacred">
+              Configuración de Audio y Narración
+            </h2>
+            <p className="text-xs text-neutral-400">
+              Voz latina femenina, mezcla de canales y frecuencias sagradas
+            </p>
+          </div>
         </div>
       </div>
 
-      {/* Voice Selection Cards */}
-      <div className="space-y-3">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
-          <label className="block text-xs font-semibold uppercase tracking-wider text-stone-600">
-            Voces en Español Latinoamericano
-          </label>
-          <span className="inline-flex items-center text-[11px] font-semibold text-amber-800 bg-amber-100/80 px-2.5 py-0.5 rounded-full border border-amber-300">
-            Acento Latino Neutro • Seseo Natural
-          </span>
+      {/* 🌸 SECCIÓN DE VOZ FEMENINA LATINA */}
+      <div className="bg-neutral-900/90 p-5 rounded-2xl border border-amber-500/20 mb-6 shadow-lg">
+        <div className="flex items-center justify-between mb-4">
+          <div className="flex items-center space-x-2.5">
+            <div className="w-7 h-7 rounded-full bg-pink-500/20 text-pink-400 flex items-center justify-center border border-pink-400/30">
+              <Heart className="w-4 h-4 fill-pink-400" />
+            </div>
+            <div>
+              <h3 className="text-sm font-bold text-white tracking-wide">
+                Voz Narradora Femenina Latina
+              </h3>
+              <p className="text-[11px] text-neutral-400">
+                Tono dulce, solemne y maternal con acento latinoamericano
+              </p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={testFemaleVoice}
+            className="inline-flex items-center space-x-1.5 px-3 py-1.5 rounded-xl bg-pink-500/15 hover:bg-pink-500/25 border border-pink-400/40 text-pink-300 text-xs font-semibold transition-all active:scale-95 shadow-sm"
+            title="Escuchar muestra de voz femenina"
+          >
+            <PlayCircle className="w-3.5 h-3.5" />
+            <span>{isPreviewPlaying ? "Hablando…" : "Probar Voz"}</span>
+          </button>
         </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-          {voices.map((v) => {
-            const isSelected = selectedVoice === v.id;
-            return (
+
+        {/* Opciones de Voz Femenina */}
+        <div className="space-y-2.5">
+          {/* Opción 1: Aoede (Gemini) */}
+          <div
+            onClick={() => handleVoiceType("gemini_aoede")}
+            className={`p-3 rounded-xl border cursor-pointer transition-all flex items-start space-x-3 ${
+              settings.femaleVoiceType === "gemini_aoede"
+                ? "bg-amber-950/40 border-amber-400 text-white shadow-md shadow-amber-950/30"
+                : "bg-neutral-950/50 border-neutral-800 text-neutral-300 hover:border-neutral-700"
+            }`}
+          >
+            <div
+              className={`w-4 h-4 rounded-full mt-0.5 border flex items-center justify-center shrink-0 ${
+                settings.femaleVoiceType === "gemini_aoede"
+                  ? "border-amber-400 bg-amber-500"
+                  : "border-neutral-600"
+              }`}
+            >
+              {settings.femaleVoiceType === "gemini_aoede" && (
+                <Check className="w-2.5 h-2.5 text-black stroke-[3]" />
+              )}
+            </div>
+            <div className="flex-1">
+              <div className="flex items-center justify-between">
+                <span className="text-xs sm:text-sm font-bold text-amber-200">
+                  Aoede • Locutora Latina Serena
+                </span>
+                <span className="text-[10px] bg-amber-500/20 text-amber-300 px-2 py-0.5 rounded-full font-mono">
+                  Recomendada
+                </span>
+              </div>
+              <p className="text-[11px] text-neutral-400 mt-0.5 leading-relaxed">
+                Voz femenina cálida, dulce y maternal con cadencia latina neutra, pausada y reconfortante.
+              </p>
+            </div>
+          </div>
+
+          {/* Opción 2: Kore (Gemini) */}
+          <div
+            onClick={() => handleVoiceType("gemini_kore")}
+            className={`p-3 rounded-xl border cursor-pointer transition-all flex items-start space-x-3 ${
+              settings.femaleVoiceType === "gemini_kore"
+                ? "bg-amber-950/40 border-amber-400 text-white shadow-md shadow-amber-950/30"
+                : "bg-neutral-950/50 border-neutral-800 text-neutral-300 hover:border-neutral-700"
+            }`}
+          >
+            <div
+              className={`w-4 h-4 rounded-full mt-0.5 border flex items-center justify-center shrink-0 ${
+                settings.femaleVoiceType === "gemini_kore"
+                  ? "border-amber-400 bg-amber-500"
+                  : "border-neutral-600"
+              }`}
+            >
+              {settings.femaleVoiceType === "gemini_kore" && (
+                <Check className="w-2.5 h-2.5 text-black stroke-[3]" />
+              )}
+            </div>
+            <div className="flex-1">
+              <div className="flex items-center justify-between">
+                <span className="text-xs sm:text-sm font-bold text-amber-200">
+                  Kore • Locutora Latina Mística
+                </span>
+                <span className="text-[10px] bg-purple-500/20 text-purple-300 px-2 py-0.5 rounded-full font-mono">
+                  Mística
+                </span>
+              </div>
+              <p className="text-[11px] text-neutral-400 mt-0.5 leading-relaxed">
+                Voz suave, íntima y de intensidad baja, ideal para la oración profunda y contemplativa.
+              </p>
+            </div>
+          </div>
+
+          {/* Opción 3: Voz Latina del Dispositivo */}
+          <div
+            onClick={() => handleVoiceType("browser_female")}
+            className={`p-3 rounded-xl border cursor-pointer transition-all flex items-start space-x-3 ${
+              settings.femaleVoiceType === "browser_female"
+                ? "bg-amber-950/40 border-amber-400 text-white shadow-md shadow-amber-950/30"
+                : "bg-neutral-950/50 border-neutral-800 text-neutral-300 hover:border-neutral-700"
+            }`}
+          >
+            <div
+              className={`w-4 h-4 rounded-full mt-0.5 border flex items-center justify-center shrink-0 ${
+                settings.femaleVoiceType === "browser_female"
+                  ? "border-amber-400 bg-amber-500"
+                  : "border-neutral-600"
+              }`}
+            >
+              {settings.femaleVoiceType === "browser_female" && (
+                <Check className="w-2.5 h-2.5 text-black stroke-[3]" />
+              )}
+            </div>
+            <div className="flex-1">
+              <div className="flex items-center justify-between">
+                <span className="text-xs sm:text-sm font-bold text-amber-200">
+                  Voz Latina Femenina del Dispositivo
+                </span>
+                <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full font-mono">
+                  Inmediata
+                </span>
+              </div>
+              <p className="text-[11px] text-neutral-400 mt-0.5 leading-relaxed">
+                Utiliza la voz femenina instalada en tu sistema (Paulina, Sabina, Dalia, etc.) sin latencia.
+              </p>
+
+              {/* Selector desplegable de voces del sistema si hay más de una */}
+              {deviceVoices.length > 0 && (
+                <div className="mt-2.5 pt-2 border-t border-neutral-800">
+                  <label className="text-[11px] text-neutral-400 block mb-1">
+                    Voz detectada en tu navegador:
+                  </label>
+                  <select
+                    value={settings.browserVoiceName || ""}
+                    onChange={(e) => handleBrowserVoiceSelect(e.target.value)}
+                    className="w-full bg-neutral-900 border border-neutral-700 text-xs text-neutral-200 rounded-lg p-2 focus:ring-1 focus:ring-amber-400 outline-none"
+                  >
+                    <option value="">
+                      Automática:{" "}
+                      {getBestLatinFemaleVoice()?.name || "Voz Femenina Neutra"}
+                    </option>
+                    {deviceVoices.map((v) => (
+                      <option key={v.name} value={v.name}>
+                        {v.name} ({v.lang})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* Ajustes de Tono y Cadencia de la Voz Femenina */}
+        <div className="mt-4 pt-4 border-t border-neutral-800/80 grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <div>
+            <div className="flex justify-between text-xs text-neutral-300 mb-1.5 font-medium">
+              <span>Tono Femenino (Calidez)</span>
+              <span className="text-amber-400 font-mono">
+                {((settings.voicePitch ?? 1.15) > 1.15 ? "Cristalino" : (settings.voicePitch ?? 1.15) < 1.1 ? "Cálido" : "Sereno")}
+              </span>
+            </div>
+            <input
+              type="range"
+              min="1.0"
+              max="1.3"
+              step="0.05"
+              value={settings.voicePitch ?? 1.15}
+              onChange={(e) => handleSlider("voicePitch", parseFloat(e.target.value))}
+              className="w-full accent-pink-500 bg-neutral-800 h-1.5 rounded-lg appearance-none cursor-pointer"
+            />
+          </div>
+
+          <div>
+            <div className="flex justify-between text-xs text-neutral-300 mb-1.5 font-medium">
+              <span>Cadencia / Pacing</span>
+              <span className="text-amber-400 font-mono">
+                {((settings.voiceSpeed ?? 0.85) < 0.85 ? "Meditativo" : (settings.voiceSpeed ?? 0.85) > 0.9 ? "Fluido" : "Pausado")}
+              </span>
+            </div>
+            <input
+              type="range"
+              min="0.75"
+              max="1.05"
+              step="0.05"
+              value={settings.voiceSpeed ?? 0.85}
+              onChange={(e) => handleSlider("voiceSpeed", parseFloat(e.target.value))}
+              className="w-full accent-amber-500 bg-neutral-800 h-1.5 rounded-lg appearance-none cursor-pointer"
+            />
+          </div>
+        </div>
+      </div>
+
+      {/* Controladores de Volúmenes Mezclados */}
+      <div className="space-y-5 mb-6">
+        <div className="bg-neutral-900/80 p-4 rounded-2xl border border-neutral-800">
+          <div className="flex justify-between text-xs sm:text-sm mb-2 text-neutral-300 font-medium">
+            <span className="flex items-center space-x-2">
+              <Mic className="w-4 h-4 text-amber-400" />
+              <span>Canal 1 • Volumen de Narración (Voz Femenina)</span>
+            </span>
+            <span className="text-amber-400 font-mono font-bold">
+              {Math.round(settings.voiceVolume * 100)}%
+            </span>
+          </div>
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.05"
+            value={settings.voiceVolume}
+            onChange={(e) => handleSlider("voiceVolume", parseFloat(e.target.value))}
+            className="w-full accent-amber-500 bg-neutral-800 h-2 rounded-lg appearance-none cursor-pointer"
+          />
+        </div>
+
+        <div className="bg-neutral-900/80 p-4 rounded-2xl border border-neutral-800">
+          <div className="flex justify-between text-xs sm:text-sm mb-2 text-neutral-300 font-medium">
+            <span className="flex items-center space-x-2">
+              <Waves className="w-4 h-4 text-sky-400" />
+              <span>Canal 2 • Frecuencias Sagradas (Hz)</span>
+            </span>
+            <span className="text-sky-400 font-mono font-bold">
+              {Math.round(settings.ambientVolume * 100)}%
+            </span>
+          </div>
+          <input
+            type="range"
+            min="0"
+            max="1"
+            step="0.05"
+            value={settings.ambientVolume}
+            onChange={(e) => handleSlider("ambientVolume", parseFloat(e.target.value))}
+            className="w-full accent-sky-500 bg-neutral-800 h-2 rounded-lg appearance-none cursor-pointer"
+          />
+        </div>
+      </div>
+
+      {/* Toggles Técnicos de Audio */}
+      <div className="space-y-4 border-t border-neutral-800/80 pt-5 mb-6">
+        <div className="flex items-center justify-between p-3 rounded-xl bg-neutral-900/40 border border-neutral-800/50">
+          <div>
+            <p className="text-sm font-semibold text-neutral-200">
+              Atenuación Automática (Audio Ducking)
+            </p>
+            <p className="text-xs text-neutral-400">
+              Atenúa el fondo sonoro automáticamente cuando la voz está hablando
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => handleToggle("audioDucking")}
+            className={`w-12 h-6 rounded-full transition-colors relative shrink-0 ${
+              settings.audioDucking ? "bg-amber-500" : "bg-neutral-800"
+            }`}
+          >
+            <span
+              className={`absolute top-1 left-1 bg-white w-4 h-4 rounded-full transition-transform ${
+                settings.audioDucking ? "translate-x-6" : "translate-x-0"
+              }`}
+            />
+          </button>
+        </div>
+
+        <div className="flex items-center justify-between p-3 rounded-xl bg-neutral-900/40 border border-neutral-800/50">
+          <div>
+            <p className="text-sm font-semibold text-neutral-200">
+              Mantener Frecuencia en Bucle Infinito
+            </p>
+            <p className="text-xs text-neutral-400">
+              Los Hz continúan sonando suavemente al terminar la oración para meditación
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => handleToggle("infiniteLoopAmbient")}
+            className={`w-12 h-6 rounded-full transition-colors relative shrink-0 ${
+              settings.infiniteLoopAmbient ? "bg-amber-500" : "bg-neutral-800"
+            }`}
+          >
+            <span
+              className={`absolute top-1 left-1 bg-white w-4 h-4 rounded-full transition-transform ${
+                settings.infiniteLoopAmbient ? "translate-x-6" : "translate-x-0"
+              }`}
+            />
+          </button>
+        </div>
+      </div>
+
+      {/* Control Motor de Rayos y Modo Lámpara */}
+      <div className="border-t border-neutral-800/80 pt-5 space-y-4">
+        <div>
+          <div className="flex items-center space-x-2 text-sm font-semibold text-neutral-200 mb-2">
+            <Sparkles className="w-4 h-4 text-amber-400" />
+            <span>Intensidad Visual del Rayo Cósmico</span>
+          </div>
+          <div className="grid grid-cols-3 gap-2 bg-neutral-900 p-1.5 rounded-2xl border border-neutral-800 text-xs text-center font-medium">
+            {(["low", "medium", "high"] as const).map((level) => (
               <button
-                key={v.id}
                 type="button"
-                id={`btn-select-voice-${v.id}`}
-                onClick={() => onSelectVoice(v.id)}
-                className={`text-left p-3.5 rounded-2xl border transition-all relative ${
-                  isSelected
-                    ? "bg-amber-50/90 border-amber-500 shadow-sm ring-2 ring-amber-300/60"
-                    : "bg-stone-50/60 border-stone-200 hover:border-amber-300 hover:bg-stone-50"
+                key={level}
+                onClick={() => handleIntensity(level)}
+                className={`py-2 rounded-xl capitalize transition-all font-semibold ${
+                  settings.visualIntensity === level
+                    ? "bg-amber-500 text-neutral-950 shadow-md"
+                    : "text-neutral-400 hover:text-white"
                 }`}
               >
-                <div className="flex items-start justify-between">
-                  <div>
-                    <div className="flex items-center space-x-2">
-                      <span className="font-semibold text-sm text-stone-900">
-                        {v.name}
-                      </span>
-                      {v.recommended && (
-                        <span className="px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-amber-500 text-white">
-                          RECOMENDADA
-                        </span>
-                      )}
-                    </div>
-                    <p className="text-[11px] text-stone-500 mt-0.5">
-                      Género: {v.gender}
-                    </p>
-                  </div>
-                  {isSelected && (
-                    <CheckCircle2 className="w-4 h-4 text-amber-600 shrink-0" />
-                  )}
-                </div>
-                <p className="text-xs text-stone-600 mt-2 leading-relaxed">
-                  {v.description}
-                </p>
+                {level === "low" ? "Baja" : level === "medium" ? "Media" : "Alta"}
               </button>
-            );
-          })}
+            ))}
+          </div>
         </div>
-      </div>
 
-      {/* Tone Description Directive */}
-      <div className="space-y-2">
-        <div className="flex items-center justify-between">
-          <label
-            htmlFor="textarea-tone-prompt"
-            className="block text-xs font-semibold uppercase tracking-wider text-stone-600"
+        <div className="flex items-center justify-between p-3 rounded-xl bg-neutral-900/40 border border-neutral-800/50">
+          <div>
+            <p className="text-sm font-semibold text-neutral-200 flex items-center space-x-2">
+              <Moon className="w-4 h-4 text-purple-400" />
+              <span>Modo Lámpara Ambiental</span>
+            </p>
+            <p className="text-xs text-neutral-400">
+              Atenúa los paneles secundarios para iluminar el espacio con el rayo sagrado
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => handleToggle("fullscreenMode")}
+            className={`w-12 h-6 rounded-full transition-colors relative shrink-0 ${
+              settings.fullscreenMode ? "bg-amber-500" : "bg-neutral-800"
+            }`}
           >
-            Directiva de Tono Emocional y Cadencia
-          </label>
-          <span className="text-[11px] text-amber-800 font-medium">
-            Español Latinoamericano
-          </span>
-        </div>
-        <textarea
-          id="textarea-tone-prompt"
-          rows={3}
-          value={toneText}
-          onChange={(e) => onChangeTone(e.target.value)}
-          className="w-full text-sm rounded-xl border border-stone-300 p-3 text-stone-800 focus:outline-none focus:ring-2 focus:ring-amber-400 bg-stone-50/50"
-          placeholder="Ej: Cálido, suave, profundamente sereno y pausado..."
-        />
-        <p className="text-[11px] text-stone-500 flex items-center gap-1.5">
-          <Info className="w-3.5 h-3.5 text-amber-600 shrink-0" />
-          Esta indicación guía la modulación vocal de Gemini TTS para transmitir
-          la dulzura e iluminación del Arcángel Jofiel.
-        </p>
-      </div>
-
-      {/* Pause Multiplier */}
-      <div className="space-y-2 pt-2 border-t border-stone-200">
-        <div className="flex items-center justify-between">
-          <label className="text-xs font-semibold uppercase tracking-wider text-stone-600 flex items-center gap-1.5">
-            <Sliders className="w-3.5 h-3.5 text-amber-700" />
-            Ajuste de Pausas de Silencio
-          </label>
-          <span className="text-xs font-mono font-semibold text-amber-900">
-            {pauseMultiplier === 1
-              ? "Exactas del texto (1.0x)"
-              : `${pauseMultiplier}x de duración`}
-          </span>
-        </div>
-        <input
-          type="range"
-          id="input-pause-multiplier"
-          min={0.5}
-          max={1.5}
-          step={0.1}
-          value={pauseMultiplier}
-          onChange={(e) => onChangePauseMultiplier(parseFloat(e.target.value))}
-          className="w-full h-1.5 bg-stone-200 rounded-lg appearance-none cursor-pointer accent-amber-500"
-        />
-        <div className="flex justify-between text-[11px] text-stone-500">
-          <span>Más cortas (0.5x)</span>
-          <span className="font-semibold text-stone-700">Original (1.0x)</span>
-          <span>Más prolongadas (1.5x)</span>
+            <span
+              className={`absolute top-1 left-1 bg-white w-4 h-4 rounded-full transition-transform ${
+                settings.fullscreenMode ? "translate-x-6" : "translate-x-0"
+              }`}
+            />
+          </button>
         </div>
       </div>
     </div>

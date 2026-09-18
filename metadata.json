@@ -1,6 +1,8 @@
 {
-  "name": "Conversor de Texto a Audio - Arcángel Jofiel",
-  "description": "Conversor de texto a audio con voz serena en español latinoamericano y pausas exactas de meditación para la invocación del Arcángel Jofiel.",
+  "name": "Conversor de Texto a Audio - Arcángel Gabriel y Jofiel",
+  "description": "Altar digital y reproductor de oraciones de los Siete Arcángeles con frecuencias sagradas Solfeggio en Hz, audio ducking, control multicanal e iluminación cósmica.",
   "requestFramePermissions": [],
-  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
+  ]
 }

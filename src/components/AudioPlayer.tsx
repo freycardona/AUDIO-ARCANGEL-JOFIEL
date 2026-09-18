@@ -1,416 +1,520 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useState, useEffect, useRef } from "react";
+import { Archangel, AdvancedAudioSettings } from "../types";
+import { ambientSound } from "../utils/ambientAudio";
+import { browserTts, getBestLatinFemaleVoice } from "../utils/browserTts";
 import {
   Play,
   Pause,
-  RotateCcw,
   Volume2,
-  VolumeX,
-  Download,
-  Music,
-  Bell,
+  Waves,
   Sparkles,
-  Sliders,
-  Check,
-  ChevronDown,
-  Loader2,
+  RefreshCw,
+  Radio,
+  Heart,
+  Mic,
 } from "lucide-react";
-import { ambientSound, MEDITATION_PRESETS } from "../utils/ambientAudio";
-import { downloadWavBlob } from "../utils/wavUtils";
-import { MeditationTrackId } from "../types";
 
 interface AudioPlayerProps {
-  audioUrl: string | null;
-  duration: number;
-  currentTime: number;
-  isPlaying: boolean;
-  onPlayPause: () => void;
-  onSeek: (time: number) => void;
-  onRestart: () => void;
-  voiceName?: string;
-  isGenerating?: boolean;
-  musicPlaying: boolean;
-  onToggleMusic: () => void;
-  musicVolume: number;
-  onChangeMusicVolume: (vol: number) => void;
-  currentTrackId: MeditationTrackId;
-  onSelectTrack: (trackId: MeditationTrackId) => void;
-  onOpenMusicTab?: () => void;
-  onDownload?: () => void;
+  arcangel: Archangel;
+  settings: AdvancedAudioSettings;
 }
 
-export const AudioPlayer: React.FC<AudioPlayerProps> = ({
-  audioUrl,
-  duration,
-  currentTime,
-  isPlaying,
-  onPlayPause,
-  onSeek,
-  onRestart,
-  voiceName = "Aoede",
-  isGenerating = false,
-  musicPlaying,
-  onToggleMusic,
-  musicVolume,
-  onChangeMusicVolume,
-  currentTrackId,
-  onSelectTrack,
-  onOpenMusicTab,
-  onDownload,
-}) => {
-  const [voiceVolume, setVoiceVolume] = useState<number>(1);
-  const [isVoiceMuted, setIsVoiceMuted] = useState<boolean>(false);
-  const [playbackRate, setPlaybackRate] = useState<number>(1);
-  const [bellFeedback, setBellFeedback] = useState<boolean>(false);
-  const [showDownloadMenu, setShowDownloadMenu] = useState<boolean>(false);
-  const [isMixingDownload, setIsMixingDownload] = useState<boolean>(false);
+export const AudioPlayer: React.FC<AudioPlayerProps> = ({ arcangel, settings }) => {
+  const [isPlaying, setIsPlaying] = useState<boolean>(false);
+  const [isLoadingVoice, setIsLoadingVoice] = useState<boolean>(false);
+  const [selectedBackground, setSelectedBackground] = useState<"recomendado" | "alterno">("recomendado");
+  const [activeFrequencyHz, setActiveFrequencyHz] = useState<number>(
+    arcangel.pestaña_1_altar.canal2_hz_base
+  );
 
-  const activePreset =
-    MEDITATION_PRESETS.find((p) => p.id === currentTrackId) ||
-    MEDITATION_PRESETS[0];
+  // HTML Audio element refs for dual-channel audio
+  const voiceAudioRef = useRef<HTMLAudioElement | null>(null);
+  const ambientAudioRef = useRef<HTMLAudioElement | null>(null);
 
-  const formatTime = (secs: number) => {
-    if (!secs || isNaN(secs) || secs < 0) return "00:00";
-    const m = Math.floor(secs / 60);
-    const s = Math.floor(secs % 60);
-    return `${m.toString().padStart(2, "0")}:${s.toString().padStart(2, "0")}`;
-  };
+  // Audio cache for studio voices
+  const ttsAudioCache = useRef<Record<string, string>>({});
 
-  const handleRingBell = () => {
-    ambientSound.playSingingBowlChime(528, 0.22);
-    setBellFeedback(true);
-    setTimeout(() => setBellFeedback(false), 1800);
-  };
+  // Web Audio synth fallback oscillator for 100% guaranteed real Hz sound
+  const synthCtxRef = useRef<AudioContext | null>(null);
+  const synthOscRef = useRef<OscillatorNode | null>(null);
+  const synthGainRef = useRef<GainNode | null>(null);
 
-  // Download raw voice WAV
-  const handleDownloadVoiceOnly = () => {
-    if (!audioUrl) return;
-    const a = document.createElement("a");
-    a.href = audioUrl;
-    a.download = `oracion-arcangel-jofiel-voz-${voiceName.toLowerCase()}.wav`;
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setShowDownloadMenu(false);
-  };
+  // Update selected frequency when changing arcangel or background mode
+  useEffect(() => {
+    const targetHz =
+      selectedBackground === "alterno"
+        ? arcangel.pestaña_1_altar.canal2_hz_alterno
+        : arcangel.pestaña_1_altar.canal2_hz_base;
+    setActiveFrequencyHz(targetHz);
+  }, [arcangel, selectedBackground]);
 
-  // Render & download master WAV with background meditation music mixed!
-  const handleDownloadWithMusic = async () => {
-    if (!audioUrl) return;
-    setIsMixingDownload(true);
-    setShowDownloadMenu(false);
-
+  // Audio synthesis helper for pure sacred frequencies
+  const startSacredOscillator = (hz: number, volume: number) => {
     try {
-      const mixedBlob = await ambientSound.renderMixedWav(
-        audioUrl,
-        currentTrackId,
-        voiceVolume,
-        musicVolume
+      if (!synthCtxRef.current) {
+        const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+        synthCtxRef.current = new AudioCtx();
+      }
+      if (synthCtxRef.current.state === "suspended") {
+        synthCtxRef.current.resume();
+      }
+
+      if (synthOscRef.current) {
+        try {
+          synthOscRef.current.stop();
+          synthOscRef.current.disconnect();
+        } catch {
+          // ignore
+        }
+      }
+
+      const ctx = synthCtxRef.current;
+      const osc = ctx.createOscillator();
+      const gain = ctx.createGain();
+      const filter = ctx.createBiquadFilter();
+
+      // Warm pure sine wave
+      osc.type = "sine";
+      osc.frequency.setValueAtTime(hz, ctx.currentTime);
+
+      // Soft lowpass for gentle angelic meditation
+      filter.type = "lowpass";
+      filter.frequency.setValueAtTime(1200, ctx.currentTime);
+
+      gain.gain.setValueAtTime(0.001, ctx.currentTime);
+      gain.gain.exponentialRampToValueAtTime(
+        Math.max(0.001, volume * 0.25),
+        ctx.currentTime + 1.5
       );
-      const filename = `oracion-arcangel-jofiel-con-musica-meditacion-${currentTrackId}.wav`;
-      downloadWavBlob(mixedBlob, filename);
-    } catch (err) {
-      console.error("Error al mezclar audio con música:", err);
-      // Fallback to voice only
-      handleDownloadVoiceOnly();
-    } finally {
-      setIsMixingDownload(false);
+
+      osc.connect(filter);
+      filter.connect(gain);
+      gain.connect(ctx.destination);
+
+      osc.start();
+      synthOscRef.current = osc;
+      synthGainRef.current = gain;
+    } catch (e) {
+      console.warn("Sacred frequency synth notice:", e);
     }
   };
 
+  const stopSacredOscillator = () => {
+    if (synthGainRef.current && synthCtxRef.current) {
+      try {
+        const ctx = synthCtxRef.current;
+        synthGainRef.current.gain.linearRampToValueAtTime(0.0001, ctx.currentTime + 0.8);
+        setTimeout(() => {
+          if (synthOscRef.current) {
+            try {
+              synthOscRef.current.stop();
+              synthOscRef.current.disconnect();
+            } catch {
+              // ignore
+            }
+            synthOscRef.current = null;
+          }
+        }, 850);
+      } catch {
+        // ignore
+      }
+    }
+  };
+
+  // Setup dual audio channels when Arcángel or frequency track changes
+  useEffect(() => {
+    // Pause previous audio
+    if (voiceAudioRef.current) voiceAudioRef.current.pause();
+    if (ambientAudioRef.current) ambientAudioRef.current.pause();
+    browserTts.stop();
+    window.speechSynthesis?.cancel();
+    stopSacredOscillator();
+
+    // Canal 2: Frecuencia de Fondo
+    let ambientUrl = `/audio/frecuencias/${arcangel.pestaña_1_altar.canal2_audio_url_recommended || "ambient.mp3"}`;
+    if (selectedBackground === "alterno") {
+      ambientUrl = `/audio/frecuencias/${arcangel.pestaña_1_altar.canal2_audio_url_alterno || "ambient.mp3"}`;
+    }
+
+    ambientAudioRef.current = new Audio(ambientUrl);
+    ambientAudioRef.current.loop = true;
+    ambientAudioRef.current.volume = settings.ambientVolume;
+
+    // If already playing, resume with the new Arcangel
+    if (isPlaying) {
+      playSacredPrayer();
+      ambientAudioRef.current
+        .play()
+        .catch(() => {
+          startSacredOscillator(activeFrequencyHz, settings.ambientVolume);
+        });
+    }
+
+    return () => {
+      if (voiceAudioRef.current) voiceAudioRef.current.pause();
+      if (ambientAudioRef.current) ambientAudioRef.current.pause();
+      browserTts.stop();
+      window.speechSynthesis?.cancel();
+      stopSacredOscillator();
+    };
+  }, [arcangel, selectedBackground]);
+
+  // Handle Speech Synthesis with 100% Latin American Female Voice & Sacred Pauses
+  const playBrowserFemaleSpeech = () => {
+    browserTts.stop();
+    if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
+    window.speechSynthesis.cancel();
+
+    // If segments exist, play with reverent pauses
+    if (arcangel.pestaña_1_altar.segments && arcangel.pestaña_1_altar.segments.length > 0) {
+      browserTts.playPrayer(
+        arcangel.pestaña_1_altar.segments,
+        {
+          onSegmentChange: () => {},
+          onEnded: () => {
+            if (!settings.infiniteLoopAmbient) {
+              setIsPlaying(false);
+              stopSacredOscillator();
+              if (ambientAudioRef.current) ambientAudioRef.current.pause();
+            }
+          },
+          onError: () => {
+            setIsPlaying(false);
+          },
+        },
+        {
+          preferredVoiceName: settings.browserVoiceName,
+          pitch: settings.voicePitch ?? 1.15,
+          rate: settings.voiceSpeed ?? 0.85,
+          volume: settings.voiceVolume,
+        }
+      );
+    } else {
+      const utterance = new SpeechSynthesisUtterance(arcangel.pestaña_1_altar.oracion_texto);
+      const femaleVoice = getBestLatinFemaleVoice(settings.browserVoiceName);
+      if (femaleVoice) {
+        utterance.voice = femaleVoice;
+        utterance.lang = femaleVoice.lang || "es-419";
+      } else {
+        utterance.lang = "es-419";
+      }
+      utterance.pitch = settings.voicePitch ?? 1.15; // Distinctive feminine warm pitch
+      utterance.rate = settings.voiceSpeed ?? 0.85;   // Contemplative cadence
+      utterance.volume = settings.voiceVolume;
+
+      utterance.onend = () => {
+        if (!settings.infiniteLoopAmbient) {
+          setIsPlaying(false);
+          stopSacredOscillator();
+          if (ambientAudioRef.current) ambientAudioRef.current.pause();
+        }
+      };
+
+      window.speechSynthesis.speak(utterance);
+    }
+  };
+
+  // Play prayer with selected Latin Female voice (Studio Aoede/Kore or Browser Female)
+  const playSacredPrayer = async () => {
+    const voiceType = settings.femaleVoiceType || "gemini_aoede";
+
+    // If browser female voice requested, run immediately
+    if (voiceType === "browser_female") {
+      playBrowserFemaleSpeech();
+      return;
+    }
+
+    // Try studio Gemini female voice (Aoede or Kore)
+    const geminiVoiceName = voiceType === "gemini_kore" ? "Kore" : "Aoede";
+    const cacheKey = `${arcangel.id}-${geminiVoiceName}`;
+
+    if (ttsAudioCache.current[cacheKey]) {
+      const audioUrl = ttsAudioCache.current[cacheKey];
+      voiceAudioRef.current = new Audio(audioUrl);
+      voiceAudioRef.current.volume = settings.voiceVolume;
+      voiceAudioRef.current.onended = () => {
+        if (!settings.infiniteLoopAmbient) {
+          setIsPlaying(false);
+          stopSacredOscillator();
+          if (ambientAudioRef.current) ambientAudioRef.current.pause();
+        }
+      };
+      voiceAudioRef.current.play().catch(() => playBrowserFemaleSpeech());
+      return;
+    }
+
+    // Fetch from backend with seamless fallback to browser female voice
+    setIsLoadingVoice(true);
+    try {
+      const res = await fetch("/api/tts/generate-full", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          text: arcangel.pestaña_1_altar.oracion_texto,
+          voice: geminiVoiceName,
+        }),
+      });
+
+      if (!res.ok) {
+        throw new Error("TTS API unavailable");
+      }
+
+      const data = await res.json();
+      if (data.success && data.audioUrl) {
+        ttsAudioCache.current[cacheKey] = data.audioUrl;
+        voiceAudioRef.current = new Audio(data.audioUrl);
+        voiceAudioRef.current.volume = settings.voiceVolume;
+        voiceAudioRef.current.onended = () => {
+          if (!settings.infiniteLoopAmbient) {
+            setIsPlaying(false);
+            stopSacredOscillator();
+            if (ambientAudioRef.current) ambientAudioRef.current.pause();
+          }
+        };
+        await voiceAudioRef.current.play();
+      } else {
+        throw new Error("No audio returned");
+      }
+    } catch (err) {
+      // Gracefully fall back to the browser's Latin American female voice
+      playBrowserFemaleSpeech();
+    } finally {
+      setIsLoadingVoice(false);
+    }
+  };
+
+  // Real-time Ducking and Volume Adjustments
+  useEffect(() => {
+    if (voiceAudioRef.current) {
+      voiceAudioRef.current.volume = settings.voiceVolume;
+    }
+
+    // Audio Ducking logic: reduce background volume when voice is playing
+    const effectiveAmbientVol =
+      settings.audioDucking && isPlaying
+        ? settings.ambientVolume * 0.4
+        : settings.ambientVolume;
+
+    if (ambientAudioRef.current) {
+      ambientAudioRef.current.volume = effectiveAmbientVol;
+    }
+
+    if (synthGainRef.current && synthCtxRef.current) {
+      synthGainRef.current.gain.setValueAtTime(
+        Math.max(0.001, effectiveAmbientVol * 0.25),
+        synthCtxRef.current.currentTime
+      );
+    }
+  }, [settings, isPlaying]);
+
+  // Main PLAY / PAUSE Handler
+  const togglePlayback = () => {
+    if (isPlaying) {
+      if (voiceAudioRef.current) voiceAudioRef.current.pause();
+      if (ambientAudioRef.current) ambientAudioRef.current.pause();
+      browserTts.stop();
+      window.speechSynthesis?.cancel();
+      stopSacredOscillator();
+      setIsPlaying(false);
+    } else {
+      setIsPlaying(true);
+
+      // Start Channel 1 (Voz Latina Femenina)
+      playSacredPrayer();
+
+      // Start Channel 2 (Ambient Hz)
+      if (ambientAudioRef.current) {
+        ambientAudioRef.current
+          .play()
+          .catch(() => {
+            startSacredOscillator(activeFrequencyHz, settings.ambientVolume);
+          });
+      }
+    }
+  };
+
+  // Cosmic Ray Glow Intensity
+  const glowOpacity =
+    settings.visualIntensity === "low"
+      ? 0.15
+      : settings.visualIntensity === "high"
+      ? 0.45
+      : 0.28;
+
+  // Active female voice display name
+  const voiceLabel =
+    settings.femaleVoiceType === "gemini_kore"
+      ? "Kore (Latina Mística)"
+      : settings.femaleVoiceType === "browser_female"
+      ? `Nativa (${settings.browserVoiceName || getBestLatinFemaleVoice()?.name || "Latina"})`
+      : "Aoede (Latina Serena)";
+
   return (
     <div
-      id="audio-player-wrapper"
-      className="bg-gradient-to-b from-stone-900 via-stone-950 to-amber-950 text-stone-100 rounded-3xl p-6 md:p-8 shadow-2xl border border-amber-500/30 relative overflow-hidden"
+      id="audio-player-altar"
+      className="flex flex-col items-center justify-center p-6 sm:p-7 bg-neutral-950 rounded-3xl max-w-xl mx-auto border border-neutral-900 shadow-2xl relative overflow-hidden transition-all"
     >
-      {/* Golden divine background illumination glow */}
-      <div className="absolute top-0 right-1/4 w-80 h-80 bg-amber-500/15 rounded-full blur-3xl pointer-events-none" />
-      <div className="absolute -bottom-10 left-1/3 w-64 h-64 bg-yellow-400/10 rounded-full blur-2xl pointer-events-none" />
+      {/* Dynamic Cosmic Ray Ambient Glow */}
+      <div
+        className="absolute -top-12 -right-12 w-80 h-80 rounded-full blur-3xl pointer-events-none transition-all duration-700"
+        style={{
+          backgroundColor: arcangel.colorHex,
+          opacity: glowOpacity,
+        }}
+      />
+      <div
+        className="absolute -bottom-12 -left-12 w-80 h-80 rounded-full blur-3xl pointer-events-none transition-all duration-700"
+        style={{
+          backgroundColor: arcangel.colorHex,
+          opacity: glowOpacity * 0.7,
+        }}
+      />
 
-      <div className="relative z-10 flex flex-col space-y-6">
-        {/* Header & Status */}
-        <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/10 pb-4">
-          <div className="flex items-center space-x-3">
-            <div className="w-10 h-10 rounded-2xl bg-amber-500/20 border border-amber-400/40 flex items-center justify-center text-amber-300">
-              <Sparkles className="w-5 h-5" />
-            </div>
-            <div>
-              <h2 className="text-base md:text-lg font-sacred font-semibold tracking-wider text-amber-200">
-                Oración del Arcángel Jofiel en Audio
-              </h2>
-              <p className="text-xs text-stone-400 flex flex-wrap items-center gap-2">
-                <span className="text-amber-300 font-medium">Voz Latina: {voiceName}</span>
-                <span>•</span>
-                <span className="text-amber-300/90 flex items-center gap-1">
-                  <Music className="w-3 h-3 text-amber-400" />
-                  <span>Música: {activePreset.name}</span>
-                </span>
-                <span>•</span>
-                <span>Master WAV 24kHz / 44.1kHz</span>
-              </p>
-            </div>
-          </div>
+      {/* 🖼️ IMAGEN DEL ARCÁNGEL AUTOMÁTICA CON EFECTO DE RAYO */}
+      <div className="relative w-64 h-64 sm:w-72 sm:h-72 rounded-3xl overflow-hidden mb-6 shadow-2xl border border-neutral-800 group z-10">
+        <img
+          src={`/assets/imagenes/${arcangel.imagen}.png`}
+          alt={arcangel.nombre}
+          className="w-full h-full object-cover transition-transform duration-700 group-hover:scale-105"
+          onError={(e) => {
+            (e.target as HTMLImageElement).src =
+              "https://images.unsplash.com/photo-1519681393784-d120267933ba?auto=format&fit=crop&w=800&q=80";
+          }}
+        />
 
-          <div className="flex flex-wrap items-center gap-2">
-            {/* Ambient Meditation Music Quick Toggle */}
-            <button
-              type="button"
-              id="btn-toggle-ambient-pad"
-              onClick={onToggleMusic}
-              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-semibold transition-all border ${
-                musicPlaying
-                  ? "bg-amber-500/30 border-amber-400 text-amber-200 shadow-sm shadow-amber-500/20"
-                  : "bg-white/5 border-white/10 text-stone-400 hover:text-stone-200 hover:bg-white/10"
-              }`}
-              title="Activar o pausar música de fondo de meditación"
-            >
-              <Music className={`w-3.5 h-3.5 ${musicPlaying ? "text-amber-300 animate-pulse" : ""}`} />
-              <span>{musicPlaying ? "Música Activa" : "Activar Música"}</span>
-            </button>
+        {/* Capa de color ambiental según el rayo del Arcángel */}
+        <div
+          className="absolute inset-0 pointer-events-none mix-blend-color transition-opacity duration-500"
+          style={{
+            backgroundColor: arcangel.colorHex,
+            opacity: settings.visualIntensity === "high" ? 0.35 : 0.2,
+          }}
+        />
 
-            {/* Singing Bowl Bell Trigger */}
-            <button
-              type="button"
-              id="btn-singing-bowl-bell"
-              onClick={handleRingBell}
-              className={`flex items-center space-x-1.5 px-3 py-1.5 rounded-xl text-xs font-medium border transition-all active:scale-95 ${
-                bellFeedback
-                  ? "bg-amber-400 text-amber-950 border-amber-300 font-bold scale-105"
-                  : "bg-white/5 border-white/10 text-stone-400 hover:text-amber-200 hover:border-amber-400/50 hover:bg-white/10"
-              }`}
-              title="Tocar campana tibetana sagrada de 528 Hz"
-            >
-              <Bell className={`w-3.5 h-3.5 ${bellFeedback ? "animate-bounce text-amber-950" : ""}`} />
-              <span>{bellFeedback ? "Campana 528Hz ♪" : "Campana 528Hz"}</span>
-            </button>
-
-            {/* Download Menu Button */}
-            {audioUrl && (
-              <div className="relative">
-                <button
-                  type="button"
-                  id="btn-download-wav-menu"
-                  onClick={() => setShowDownloadMenu(!showDownloadMenu)}
-                  disabled={isMixingDownload}
-                  className="flex items-center space-x-1.5 px-3.5 py-1.5 rounded-xl text-xs font-semibold bg-gradient-to-r from-amber-500 to-yellow-500 hover:from-amber-400 hover:to-yellow-400 text-amber-950 shadow-md shadow-amber-500/20 transition-all hover:scale-102 active:scale-95 disabled:opacity-50"
-                  title="Descargar audio en archivo .WAV"
-                >
-                  {isMixingDownload ? (
-                    <>
-                      <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                      <span>Mezclando…</span>
-                    </>
-                  ) : (
-                    <>
-                      <Download className="w-3.5 h-3.5" />
-                      <span>Descargar Audio</span>
-                      <ChevronDown className="w-3 h-3 ml-0.5 opacity-70" />
-                    </>
-                  )}
-                </button>
-
-                {showDownloadMenu && (
-                  <div
-                    id="dropdown-download-options"
-                    className="absolute right-0 mt-2 w-64 rounded-2xl bg-stone-900/95 backdrop-blur-md border border-amber-500/30 p-2 shadow-2xl z-40 text-xs space-y-1"
-                  >
-                    <button
-                      type="button"
-                      id="btn-download-with-music"
-                      onClick={handleDownloadWithMusic}
-                      className="w-full text-left p-2.5 rounded-xl hover:bg-amber-500/20 hover:text-amber-200 flex items-start space-x-2.5 transition-colors"
-                    >
-                      <Music className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
-                      <div>
-                        <p className="font-bold text-stone-100">
-                          Con Música de Meditación
-                        </p>
-                        <p className="text-[10px] text-stone-400">
-                          Voz + fondo {activePreset.name} en estéreo
-                        </p>
-                      </div>
-                    </button>
-
-                    <button
-                      type="button"
-                      id="btn-download-voice-only"
-                      onClick={handleDownloadVoiceOnly}
-                      className="w-full text-left p-2.5 rounded-xl hover:bg-white/10 text-stone-300 hover:text-white flex items-start space-x-2.5 transition-colors"
-                    >
-                      <Volume2 className="w-4 h-4 text-stone-400 shrink-0 mt-0.5" />
-                      <div>
-                        <p className="font-bold">Solo Voz (Original)</p>
-                        <p className="text-[10px] text-stone-400">
-                          Locución pura sin fondo musical
-                        </p>
-                      </div>
-                    </button>
-                  </div>
-                )}
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Dynamic Waveform Visualizer simulation */}
-        <div className="h-12 flex items-center justify-center space-x-1 px-4 py-2 bg-black/40 rounded-2xl border border-white/5 overflow-hidden relative">
-          {musicPlaying && (
-            <div className="absolute inset-0 bg-gradient-to-r from-amber-500/5 via-yellow-400/10 to-amber-500/5 pointer-events-none animate-pulse" />
-          )}
-
-          {Array.from({ length: 48 }).map((_, i) => {
-            const voicePulse = isPlaying
-              ? Math.sin(i * 0.4 + currentTime * 3) * 65 + 30
-              : 0;
-            const musicPulse = musicPlaying
-              ? Math.sin(i * 0.2 + Date.now() * 0.003) * 20 + 15
-              : 0;
-            const combined = Math.min(95, Math.max(8, voicePulse + musicPulse));
-
-            return (
-              <div
-                key={i}
-                className="w-1 rounded-full bg-gradient-to-t from-amber-600 via-yellow-400 to-amber-200 transition-all duration-150"
-                style={{
-                  height: `${combined}%`,
-                  opacity: isPlaying ? 0.95 : musicPlaying ? 0.6 : 0.2,
-                }}
-              />
-            );
-          })}
-        </div>
-
-        {/* Scrubber and Times */}
-        <div className="space-y-2">
-          <input
-            type="range"
-            id="audio-scrubber-slider"
-            min={0}
-            max={duration || 100}
-            step={0.1}
-            value={currentTime}
-            onChange={(e) => onSeek(parseFloat(e.target.value))}
-            disabled={!audioUrl || isGenerating}
-            className="w-full h-2 bg-stone-700 rounded-lg appearance-none cursor-pointer accent-amber-400 focus:outline-none disabled:opacity-40"
+        {/* Halo Pulsante si el audio está en reproducción */}
+        {isPlaying && (
+          <div
+            className="absolute inset-0 border-2 rounded-3xl animate-pulse pointer-events-none"
+            style={{ borderColor: arcangel.colorHex }}
           />
-          <div className="flex justify-between text-xs font-mono text-stone-400">
-            <span>{formatTime(currentTime)}</span>
-            <span>{formatTime(duration)}</span>
-          </div>
+        )}
+
+        {/* Badge Flotante del Día y Frecuencia */}
+        <div className="absolute top-3 right-3 bg-neutral-950/80 backdrop-blur-md px-3 py-1 rounded-full border border-neutral-700/80 text-[11px] font-semibold text-white flex items-center space-x-1.5 shadow-lg">
+          <Waves className="w-3 h-3 text-amber-400" />
+          <span>{activeFrequencyHz} Hz</span>
+        </div>
+      </div>
+
+      {/* Título e Información Básica en Pantalla */}
+      <div className="text-center mb-4 z-10">
+        <div className="inline-flex items-center space-x-2 px-3 py-1 rounded-full bg-neutral-900/90 border border-neutral-800 text-xs font-semibold mb-2">
+          <span
+            className="w-2.5 h-2.5 rounded-full"
+            style={{ backgroundColor: arcangel.colorHex }}
+          />
+          <span className="text-neutral-300">
+            Día {arcangel.dia} • {arcangel.ray}
+          </span>
+        </div>
+        <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-white font-sacred">
+          {arcangel.nombre}
+        </h1>
+        <p className="text-xs sm:text-sm font-medium mt-1" style={{ color: arcangel.colorHex }}>
+          {arcangel.significado}
+        </p>
+      </div>
+
+      {/* 🌸 INDICADOR DE VOZ NARRADORA FEMENINA LATINA */}
+      <div className="mb-5 z-10 flex items-center space-x-2 bg-neutral-900/80 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-neutral-800 text-xs text-neutral-300 shadow-sm">
+        <Heart className="w-3.5 h-3.5 text-pink-400 fill-pink-400 shrink-0" />
+        <span className="text-neutral-400">Voz Narradora:</span>
+        <span className="text-pink-300 font-semibold">{voiceLabel}</span>
+      </div>
+
+      {/* 🎛️ SELECTOR DE PAISAJES SONOROS DE MEDITACIÓN (CANAL 2) */}
+      <div className="w-full bg-neutral-900/85 backdrop-blur-md p-4 rounded-2xl border border-neutral-800 mb-6 z-10">
+        <div className="flex items-center justify-between mb-3">
+          <p className="text-xs font-bold uppercase tracking-wider text-neutral-400 flex items-center space-x-1.5">
+            <Radio className="w-3.5 h-3.5 text-amber-400" />
+            <span>Canal 2 • Frecuencias Sagradas de Meditación</span>
+          </p>
+          <span className="text-[11px] font-mono text-neutral-400 bg-neutral-800 px-2 py-0.5 rounded-md">
+            {activeFrequencyHz} Hz
+          </span>
         </div>
 
-        {/* Primary Controls Row: Speed, Play/Pause, Volume Mixer */}
-        <div className="flex flex-wrap items-center justify-between gap-4 pt-2">
-          {/* Playback speed selector */}
-          <div className="flex items-center space-x-1.5 bg-white/5 p-1 rounded-xl border border-white/10 text-xs">
-            <span className="text-[11px] text-stone-400 px-2 font-medium">
-              Velocidad:
+        <div className="space-y-2.5">
+          <label
+            className={`flex items-center space-x-3 text-xs sm:text-sm p-2.5 rounded-xl cursor-pointer transition-all border ${
+              selectedBackground === "recomendado"
+                ? "bg-neutral-800/90 border-amber-400/50 text-white"
+                : "border-transparent text-neutral-400 hover:text-neutral-200"
+            }`}
+          >
+            <input
+              type="radio"
+              name="backgroundHz"
+              checked={selectedBackground === "recomendado"}
+              onChange={() => setSelectedBackground("recomendado")}
+              className="accent-amber-500 w-4 h-4 cursor-pointer"
+            />
+            <span className="flex-1 font-medium">
+              Frecuencia Nativa: {arcangel.pestaña_1_altar.canal2_frecuencia_recommended}
             </span>
-            {[0.8, 0.9, 1.0].map((rate) => (
-              <button
-                key={rate}
-                type="button"
-                id={`btn-speed-${rate}`}
-                onClick={() => setPlaybackRate(rate)}
-                className={`px-2 py-1 rounded-lg font-medium transition-colors ${
-                  playbackRate === rate
-                    ? "bg-amber-500 text-amber-950 font-semibold"
-                    : "text-stone-300 hover:bg-white/10"
-                }`}
-              >
-                {rate === 0.9 ? "0.9x Sereno" : `${rate}x`}
-              </button>
-            ))}
-          </div>
+          </label>
 
-          {/* Center: Replay, Play/Pause & Direct Download Button */}
-          <div className="flex items-center space-x-3 sm:space-x-4">
-            <button
-              type="button"
-              id="btn-restart-audio"
-              onClick={onRestart}
-              disabled={!audioUrl || isGenerating}
-              className="p-3 rounded-2xl bg-white/5 hover:bg-white/10 text-stone-300 hover:text-white border border-white/10 transition-colors disabled:opacity-40"
-              title="Reiniciar oración desde el principio"
-            >
-              <RotateCcw className="w-5 h-5" />
-            </button>
-
-            <button
-              type="button"
-              id="btn-main-play-pause"
-              onClick={onPlayPause}
-              disabled={isGenerating}
-              className={`w-14 h-14 rounded-full flex items-center justify-center text-amber-950 shadow-xl transition-all ${
-                isPlaying
-                  ? "bg-amber-400 hover:bg-amber-300 scale-105 shadow-amber-400/40"
-                  : "bg-gradient-to-tr from-amber-500 via-amber-400 to-yellow-300 hover:scale-110 shadow-amber-500/50"
-              }`}
-              title={isPlaying ? "Pausar oración" : "Reproducir oración"}
-            >
-              {isPlaying ? (
-                <Pause className="w-6 h-6 fill-current" />
-              ) : (
-                <Play className="w-6 h-6 fill-current translate-x-0.5" />
-              )}
-            </button>
-
-            {/* Direct Download Button placed right next to Play/Pause when audio is available */}
-            {audioUrl && (
-              <button
-                type="button"
-                id="btn-download-audio-direct"
-                onClick={onDownload || handleDownloadVoiceOnly}
-                disabled={isGenerating}
-                className="flex items-center space-x-2 px-3.5 py-3 rounded-2xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 hover:text-amber-200 border border-amber-400/50 hover:border-amber-400 transition-all hover:scale-105 active:scale-95 shadow-md shadow-amber-500/10 font-semibold text-xs sm:text-sm"
-                title="Descargar archivo de audio WAV en tu dispositivo"
-              >
-                <Download className="w-4 h-4 sm:w-5 sm:h-5 text-amber-400 shrink-0" />
-                <span className="font-bold">Descargar</span>
-              </button>
-            )}
-          </div>
-
-          {/* Dual Volume Mixer: Voice & Meditation Music */}
-          <div className="flex items-center space-x-3 bg-white/5 px-3 py-2 rounded-2xl border border-white/10 text-xs">
-            {/* Voice Volume */}
-            <div className="flex items-center space-x-1.5" title="Volumen de la voz">
-              <span className="text-[10px] uppercase font-bold text-amber-400/80">Voz</span>
-              <input
-                type="range"
-                id="input-voice-volume"
-                min={0}
-                max={1}
-                step={0.05}
-                value={isVoiceMuted ? 0 : voiceVolume}
-                onChange={(e) => {
-                  setVoiceVolume(parseFloat(e.target.value));
-                  if (isVoiceMuted) setIsVoiceMuted(false);
-                }}
-                className="w-16 h-1.5 bg-stone-700 rounded-lg appearance-none cursor-pointer accent-amber-400"
-              />
-            </div>
-
-            <div className="h-4 w-px bg-white/15" />
-
-            {/* Music Volume */}
-            <div className="flex items-center space-x-1.5" title="Volumen de la música de meditación">
-              <Music className="w-3 h-3 text-amber-400" />
-              <input
-                type="range"
-                id="input-player-music-volume"
-                min={0}
-                max={1}
-                step={0.05}
-                value={musicVolume}
-                onChange={(e) => onChangeMusicVolume(parseFloat(e.target.value))}
-                className="w-16 h-1.5 bg-stone-700 rounded-lg appearance-none cursor-pointer accent-amber-500"
-              />
-              <span className="text-[10px] font-mono text-stone-400 w-6 text-right">
-                {Math.round(musicVolume * 100)}%
-              </span>
-            </div>
-          </div>
+          <label
+            className={`flex items-center space-x-3 text-xs sm:text-sm p-2.5 rounded-xl cursor-pointer transition-all border ${
+              selectedBackground === "alterno"
+                ? "bg-neutral-800/90 border-amber-400/50 text-white"
+                : "border-transparent text-neutral-400 hover:text-neutral-200"
+            }`}
+          >
+            <input
+              type="radio"
+              name="backgroundHz"
+              checked={selectedBackground === "alterno"}
+              onChange={() => setSelectedBackground("alterno")}
+              className="accent-amber-500 w-4 h-4 cursor-pointer"
+            />
+            <span className="flex-1 font-medium">
+              Frecuencia Alterna: {arcangel.pestaña_1_altar.canal2_opcion_alterna_hz}
+            </span>
+          </label>
         </div>
+      </div>
+
+      {/* 🔮 BOTÓN DE PLAY / PAUSE PRINCIPAL */}
+      <button
+        type="button"
+        id="btn-play-pause-arcangel"
+        onClick={togglePlayback}
+        className="w-20 h-20 sm:w-24 sm:h-24 rounded-full flex items-center justify-center transition-all duration-300 transform hover:scale-105 active:scale-95 shadow-2xl z-10 relative group"
+        style={{
+          backgroundColor: arcangel.colorHex,
+          boxShadow: `0 0 35px ${arcangel.colorHex}66`,
+        }}
+        title={isPlaying ? "Pausar Oración" : "Escuchar Oración con Frecuencia"}
+      >
+        {isPlaying ? (
+          <Pause className="w-9 h-9 sm:w-10 sm:h-10 text-neutral-950 fill-neutral-950" />
+        ) : (
+          <Play className="w-9 h-9 sm:w-10 sm:h-10 text-neutral-950 fill-neutral-950 ml-1.5" />
+        )}
+      </button>
+
+      <p className="text-xs text-neutral-400 mt-3 z-10">
+        {isPlaying
+          ? "Reproduciendo Oración Suprema con Voz Latina Femenina"
+          : isLoadingVoice
+          ? "Preparando voz de oración…"
+          : "Toca para iniciar la invocación sagrada"}
+      </p>
+
+      {/* Caja de Texto Desplegable con la Oración Suprema */}
+      <div className="mt-6 text-neutral-300 text-xs sm:text-sm text-center italic bg-neutral-900/60 p-4 rounded-2xl border border-neutral-800/80 max-h-32 overflow-y-auto leading-relaxed z-10 font-serif">
+        "{arcangel.pestaña_1_altar.oracion_texto}"
       </div>
     </div>
   );
