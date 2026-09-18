@@ -33,3 +33,5 @@ export interface GeneratedAudioData {
   totalSize: number;
   generatedAt: Date;
 }
+
+export type MeditationTrackId = "luz-dorada-432" | "sanacion-528" | "paz-396" | "intuicion-852";
