@@ -17,6 +17,7 @@ import {
   getAvailableFemaleLatinVoices,
   speakSampleFemaleVoice,
   getBestLatinFemaleVoice,
+  isNaturalVoice,
 } from "../utils/browserTts";
 
 interface VoiceSettingsProps {
@@ -64,7 +65,7 @@ export const VoiceSettings: React.FC<VoiceSettingsProps> = ({
   };
 
   const handleVoiceType = (
-    type: "gemini_aoede" | "gemini_kore" | "browser_female"
+    type: "gemini_aoede" | "gemini_kore" | "gemini_zephyr" | "browser_female"
   ) => {
     const updated = { ...settings, femaleVoiceType: type };
     onSettingsChange(updated);
@@ -75,14 +76,51 @@ export const VoiceSettings: React.FC<VoiceSettingsProps> = ({
     onSettingsChange(updated);
   };
 
-  const testFemaleVoice = () => {
+  const testFemaleVoice = async () => {
+    if (isPreviewPlaying) return;
     setIsPreviewPlaying(true);
-    speakSampleFemaleVoice(
-      settings.browserVoiceName,
-      settings.voicePitch || 1.15,
-      settings.voiceSpeed || 0.85
-    );
-    setTimeout(() => setIsPreviewPlaying(false), 3000);
+
+    if (settings.femaleVoiceType === "browser_female") {
+      speakSampleFemaleVoice(
+        settings.browserVoiceName,
+        settings.voicePitch || 1.15,
+        settings.voiceSpeed || 0.85
+      );
+      setTimeout(() => setIsPreviewPlaying(false), 3500);
+      return;
+    }
+
+    try {
+      const voiceName =
+        settings.femaleVoiceType === "gemini_kore"
+          ? "Kore"
+          : settings.femaleVoiceType === "gemini_zephyr"
+          ? "Zephyr"
+          : "Aoede";
+
+      const res = await fetch("/api/tts/preview-sample", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ voice: voiceName }),
+      });
+      const data = await res.json();
+      if (data.success && data.audioUrl) {
+        const audio = new Audio(data.audioUrl);
+        audio.volume = settings.voiceVolume || 0.9;
+        audio.onended = () => setIsPreviewPlaying(false);
+        audio.onerror = () => {
+          speakSampleFemaleVoice(settings.browserVoiceName);
+          setIsPreviewPlaying(false);
+        };
+        await audio.play();
+      } else {
+        speakSampleFemaleVoice(settings.browserVoiceName);
+        setTimeout(() => setIsPreviewPlaying(false), 3500);
+      }
+    } catch {
+      speakSampleFemaleVoice(settings.browserVoiceName);
+      setTimeout(() => setIsPreviewPlaying(false), 3500);
+    }
   };
 
   return (
@@ -205,7 +243,42 @@ export const VoiceSettings: React.FC<VoiceSettingsProps> = ({
             </div>
           </div>
 
-          {/* Opción 3: Voz Latina del Dispositivo */}
+          {/* Opción 3: Zephyr (Gemini) */}
+          <div
+            onClick={() => handleVoiceType("gemini_zephyr")}
+            className={`p-3 rounded-xl border cursor-pointer transition-all flex items-start space-x-3 ${
+              settings.femaleVoiceType === "gemini_zephyr"
+                ? "bg-amber-950/40 border-amber-400 text-white shadow-md shadow-amber-950/30"
+                : "bg-neutral-950/50 border-neutral-800 text-neutral-300 hover:border-neutral-700"
+            }`}
+          >
+            <div
+              className={`w-4 h-4 rounded-full mt-0.5 border flex items-center justify-center shrink-0 ${
+                settings.femaleVoiceType === "gemini_zephyr"
+                  ? "border-amber-400 bg-amber-500"
+                  : "border-neutral-600"
+              }`}
+            >
+              {settings.femaleVoiceType === "gemini_zephyr" && (
+                <Check className="w-2.5 h-2.5 text-black stroke-[3]" />
+              )}
+            </div>
+            <div className="flex-1">
+              <div className="flex items-center justify-between">
+                <span className="text-xs sm:text-sm font-bold text-amber-200">
+                  Zephyr • Locutora Celestial y Cristalina
+                </span>
+                <span className="text-[10px] bg-sky-500/20 text-sky-300 px-2 py-0.5 rounded-full font-mono">
+                  Celestial
+                </span>
+              </div>
+              <p className="text-[11px] text-neutral-400 mt-0.5 leading-relaxed">
+                Voz femenina luminosa, pura y diáfana, con cadencia suave y articulación armónica.
+              </p>
+            </div>
+          </div>
+
+          {/* Opción 4: Voz Latina del Dispositivo */}
           <div
             onClick={() => handleVoiceType("browser_female")}
             className={`p-3 rounded-xl border cursor-pointer transition-all flex items-start space-x-3 ${
@@ -228,21 +301,21 @@ export const VoiceSettings: React.FC<VoiceSettingsProps> = ({
             <div className="flex-1">
               <div className="flex items-center justify-between">
                 <span className="text-xs sm:text-sm font-bold text-amber-200">
-                  Voz Latina Femenina del Dispositivo
+                  Voz Latina del Dispositivo / Navegador
                 </span>
                 <span className="text-[10px] bg-emerald-500/20 text-emerald-300 px-2 py-0.5 rounded-full font-mono">
-                  Inmediata
+                  Local
                 </span>
               </div>
               <p className="text-[11px] text-neutral-400 mt-0.5 leading-relaxed">
-                Utiliza la voz femenina instalada en tu sistema (Paulina, Sabina, Dalia, etc.) sin latencia.
+                Utiliza las voces instaladas en tu equipo (se recomiendan las marcadas con 🌿 Natural/Online).
               </p>
 
               {/* Selector desplegable de voces del sistema si hay más de una */}
               {deviceVoices.length > 0 && (
                 <div className="mt-2.5 pt-2 border-t border-neutral-800">
                   <label className="text-[11px] text-neutral-400 block mb-1">
-                    Voz detectada en tu navegador:
+                    Seleccionar voz instalada:
                   </label>
                   <select
                     value={settings.browserVoiceName || ""}
@@ -250,14 +323,17 @@ export const VoiceSettings: React.FC<VoiceSettingsProps> = ({
                     className="w-full bg-neutral-900 border border-neutral-700 text-xs text-neutral-200 rounded-lg p-2 focus:ring-1 focus:ring-amber-400 outline-none"
                   >
                     <option value="">
-                      Automática:{" "}
-                      {getBestLatinFemaleVoice()?.name || "Voz Femenina Neutra"}
+                      Automática recomendada:{" "}
+                      {getBestLatinFemaleVoice()?.name || "Voz Femenina"}
                     </option>
-                    {deviceVoices.map((v) => (
-                      <option key={v.name} value={v.name}>
-                        {v.name} ({v.lang})
-                      </option>
-                    ))}
+                    {deviceVoices.map((v) => {
+                      const natural = isNaturalVoice(v);
+                      return (
+                        <option key={v.name} value={v.name}>
+                          {natural ? "🌿 [Natural/Online] " : ""}{v.name} ({v.lang})
+                        </option>
+                      );
+                    })}
                   </select>
                 </div>
               )}

@@ -224,8 +224,13 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ arcangel, settings }) 
       return;
     }
 
-    // Try studio Gemini female voice (Aoede or Kore)
-    const geminiVoiceName = voiceType === "gemini_kore" ? "Kore" : "Aoede";
+    // Try studio Gemini female voice (Aoede, Kore, or Zephyr)
+    const geminiVoiceName =
+      voiceType === "gemini_kore"
+        ? "Kore"
+        : voiceType === "gemini_zephyr"
+        ? "Zephyr"
+        : "Aoede";
     const cacheKey = `${arcangel.id}-${geminiVoiceName}`;
 
     if (ttsAudioCache.current[cacheKey]) {

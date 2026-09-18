@@ -64,7 +64,7 @@ export interface AdvancedAudioSettings {
   infiniteLoopAmbient: boolean; // El fondo Hz sigue sonando infinitamente
   visualIntensity: "low" | "medium" | "high"; // Intensidad del rayo cósmico
   fullscreenMode: boolean;    // Modo lámpara ambiental (atenúa controles)
-  femaleVoiceType: "gemini_aoede" | "gemini_kore" | "browser_female"; // Tipo de voz femenina latina
+  femaleVoiceType: "gemini_aoede" | "gemini_kore" | "gemini_zephyr" | "browser_female"; // Tipo de voz femenina latina
   browserVoiceName?: string;   // Nombre de voz femenina del sistema elegida
   voicePitch: number;         // Tono femenino (default 1.15)
   voiceSpeed: number;         // Velocidad sosegada (default 0.85)

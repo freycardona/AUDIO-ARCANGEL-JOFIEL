@@ -1,5 +1,7 @@
 import express from "express";
 import path from "path";
+import fs from "fs";
+import crypto from "crypto";
 import dotenv from "dotenv";
 import { GoogleGenAI } from "@google/genai";
 import { createServer as createViteServer } from "vite";
@@ -278,6 +280,13 @@ app.get("/api/voices", (_req, res) => {
         recommended: false,
       },
       {
+        id: "Zephyr",
+        name: "Zephyr (Voz Femenina Celestial y Cristalina)",
+        gender: "Femenina Latina",
+        description: "Luminosa, pacífica y cristalina, de alta pureza espiritual.",
+        recommended: false,
+      },
+      {
         id: "Puck",
         name: "Puck (Voz Latina Clara y Pacífica)",
         gender: "Masculina Latina",
@@ -300,6 +309,208 @@ app.get("/api/voices", (_req, res) => {
       },
     ],
   });
+});
+
+// Helper for caching TTS files to disk
+const VOCES_CACHE_DIR = path.join(process.cwd(), "public", "audio", "voces");
+if (!fs.existsSync(VOCES_CACHE_DIR)) {
+  fs.mkdirSync(VOCES_CACHE_DIR, { recursive: true });
+}
+
+function getCacheHash(text: string, voice: string): string {
+  return crypto
+    .createHash("md5")
+    .update(`${voice}_${text.trim().toLowerCase()}`)
+    .digest("hex");
+}
+
+// Endpoint to generate full unified prayer audio in 1 single Gemini TTS call
+app.post("/api/tts/generate-full", async (req, res) => {
+  try {
+    const {
+      text,
+      tone = "Tono de voz: Cálido, suave, profundamente sereno y pausado. Pronunciación auténtica en español latinoamericano (acento latino neutro con seseo suave, sin ceceo), manteniendo una intensidad baja, íntima y envolvente",
+      voice = "Aoede",
+      mode = "unified",
+    } = req.body;
+
+    const prayerScript = text || `Amado Arcángel Jofiel…
+portador de la luz divina y la sabiduría de Dios…
+te invoco en este momento.
+Te pido que limpies mi mente de pensamientos negativos…
+dudas…
+o confusión.
+Te ruego que me concedas claridad mental…
+discernimiento…
+y la gracia de ver la belleza en todo lo que me rodea.
+Ayúdame a tomar decisiones justas…
+a encontrar paz en el caos…
+y a despertar la chispa del conocimiento en mi ser.
+Gracias por guiar mis pasos…
+y llenar mi vida de armonía.
+Amén…`;
+
+    const cacheHash = getCacheHash(prayerScript, voice);
+    const cachedFileName = `prayer_${cacheHash}.wav`;
+    const cachedFilePath = path.join(VOCES_CACHE_DIR, cachedFileName);
+
+    // If already generated and cached on disk, return it immediately!
+    if (fs.existsSync(cachedFilePath)) {
+      const stat = fs.statSync(cachedFilePath);
+      const audioUrl = `/audio/voces/${cachedFileName}`;
+      return res.json({
+        success: true,
+        audioUrl,
+        cached: true,
+        totalSize: stat.size,
+        voice,
+      });
+    }
+
+    const ai = getGeminiClient();
+
+    let effectiveTone = tone;
+    if (voice === "Zephyr") {
+      effectiveTone = "Tono de voz: Cristalino, puro, sumamente sereno y diáfano. Pronunciación auténtica en español latinoamericano neutro (con seseo suave, sin ceceo), transmitiendo una paz etérea y luminosa";
+    } else if (voice === "Kore") {
+      effectiveTone = "Tono de voz: Místico, íntimo, suave y contemplativo. Pronunciación auténtica en español latinoamericano neutro (con seseo suave, sin ceceo), manteniendo una cadencia pausada y reflexiva";
+    } else if (voice === "Aoede") {
+      effectiveTone = "Tono de voz: Cálido, dulce, maternal y profundamente reconfortante. Pronunciación auténtica en español latinoamericano neutro (con seseo suave, sin ceceo), transmitiendo infinita ternura y solemnidad";
+    }
+
+    // 1-call prompt specifically engineered for sacred prayer with pauses in Latin American accent
+    const prompt = `INSTRUCCIÓN OBLIGATORIA DE VOZ Y LOCUCIÓN:
+Habla con una auténtica voz latina en español latinoamericano neutro.
+- Acento y Fonética: 100% Latinoamericano (acento neutro de América Latina, con seseo natural: pronuncia suavemente las 'c', 'z' y 's' como sonido de s latina; jamás utilices ceceo ibérico ni modismos de España).
+- Emoción y Calidez: ${effectiveTone}
+- Cadencia: Pausada, reflexiva y serena. Haz pausas tranquilas y sentidas de silencio entre cada verso u oración.
+- Verso final: Pronuncia la última palabra "Amén" en un susurro sumamente dulce, reverente y lleno de paz espiritual.
+
+Texto sagrado para locución:
+${prayerScript}`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.1-flash-tts-preview",
+      contents: [
+        {
+          parts: [{ text: prompt }],
+        },
+      ],
+      config: {
+        // @ts-ignore
+        responseModalities: ["AUDIO"],
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: { voiceName: voice || "Aoede" },
+          },
+        },
+      },
+    });
+
+    const base64Data =
+      response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+
+    if (!base64Data) {
+      throw new Error(
+        "No se recibieron datos de audio del modelo de Gemini TTS."
+      );
+    }
+
+    const pcmBuffer = Buffer.from(base64Data, "base64");
+    const sampleRate = 24000;
+    const wavBuffer = pcmToWav(pcmBuffer, sampleRate, 1, 16);
+    const duration = pcmBuffer.length / (sampleRate * 2);
+
+    // Persist to disk cache so it is never requested again
+    try {
+      fs.writeFileSync(cachedFilePath, wavBuffer);
+    } catch (err) {
+      console.warn("Could not save audio cache file:", err);
+    }
+
+    const audioUrl = `/audio/voces/${cachedFileName}`;
+
+    res.json({
+      success: true,
+      audioUrl,
+      duration,
+      sampleRate,
+      totalSize: wavBuffer.length,
+      voice,
+    });
+  } catch (error: any) {
+    console.error("Error generating full TTS audio:", error);
+    let userMsg = error.message || "Error al generar el audio de la oración.";
+
+    if (userMsg.includes("429") || userMsg.includes("quota")) {
+      const match = userMsg.match(/retry in ([\d\.]+)s/i);
+      const delay = match ? Math.ceil(parseFloat(match[1])) : 45;
+      userMsg = `Límite temporal de cuota por minuto alcanzado (${delay}s).`;
+    }
+
+    res.status(500).json({
+      success: false,
+      error: userMsg,
+    });
+  }
+});
+
+// Fast sample preview endpoint
+app.post("/api/tts/preview-sample", async (req, res) => {
+  try {
+    const { voice = "Aoede", text = "Amado ser de luz, que la paz y la sabiduría divina iluminen tu sagrado camino." } = req.body;
+    const cacheHash = getCacheHash(text, voice);
+    const cachedFileName = `preview_${cacheHash}.wav`;
+    const cachedFilePath = path.join(VOCES_CACHE_DIR, cachedFileName);
+
+    if (fs.existsSync(cachedFilePath)) {
+      return res.json({
+        success: true,
+        audioUrl: `/audio/voces/${cachedFileName}`,
+        cached: true,
+      });
+    }
+
+    const ai = getGeminiClient();
+    let voiceDesc = "tono cálido, dulce, maternal, solemne y sereno";
+    if (voice === "Zephyr") {
+      voiceDesc = "tono cristalino, puro, sumamente sereno, diáfano y celestial";
+    } else if (voice === "Kore") {
+      voiceDesc = "tono místico, íntimo, suave y contemplativo";
+    }
+
+    const prompt = `INSTRUCCIÓN DE LOCUCIÓN:
+Voz femenina latina auténtica, ${voiceDesc} en español latinoamericano neutro con seseo suave sin ceceo.
+Di con reverencia espiritual: "${text}"`;
+
+    const response = await ai.models.generateContent({
+      model: "gemini-3.1-flash-tts-preview",
+      contents: [{ parts: [{ text: prompt }] }],
+      config: {
+        // @ts-ignore
+        responseModalities: ["AUDIO"],
+        speechConfig: {
+          voiceConfig: {
+            prebuiltVoiceConfig: { voiceName: voice },
+          },
+        },
+      },
+    });
+
+    const base64Data = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
+    if (!base64Data) throw new Error("No se recibieron datos");
+
+    const pcmBuffer = Buffer.from(base64Data, "base64");
+    const wavBuffer = pcmToWav(pcmBuffer, 24000, 1, 16);
+    fs.writeFileSync(cachedFilePath, wavBuffer);
+
+    res.json({
+      success: true,
+      audioUrl: `/audio/voces/${cachedFileName}`,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err.message });
+  }
 });
 
 // Synthesize a single speech segment using Gemini TTS
@@ -344,118 +555,6 @@ async function synthesizeSegment(
 
   return Buffer.from(base64Data, "base64");
 }
-
-// Endpoint to generate full unified prayer audio in 1 single Gemini TTS call
-app.post("/api/tts/generate-full", async (req, res) => {
-  try {
-    const {
-      text,
-      tone = "Tono de voz: Cálido, suave, profundamente sereno y pausado. Pronunciación auténtica en español latinoamericano (acento latino neutro con seseo suave, sin ceceo), manteniendo una intensidad baja, íntima y envolvente",
-      voice = "Aoede",
-      mode = "unified", // "unified" uses 1 call (immune to 3 RPM quota); "stitched" uses segments
-    } = req.body;
-
-    const prayerScript = text || `Amado Arcángel Jofiel…
-portador de la luz divina y la sabiduría de Dios…
-te invoco en este momento.
-Te pido que limpies mi mente de pensamientos negativos…
-dudas…
-o confusión.
-Te ruego que me concedas claridad mental…
-discernimiento…
-y la gracia de ver la belleza en todo lo que me rodea.
-Ayúdame a tomar decisiones justas…
-a encontrar paz en el caos…
-y a despertar la chispa del conocimiento en mi ser.
-Gracias por guiar mis pasos…
-y llenar mi vida de armonía.
-Amén…`;
-
-    const ai = getGeminiClient();
-
-    // 1-call prompt specifically engineered for sacred prayer with pauses in Latin American accent
-    const prompt = `INSTRUCCIÓN OBLIGATORIA DE VOZ Y LOCUCIÓN:
-Habla con una auténtica voz latina en español latinoamericano neutro.
-- Acento y Fonética: 100% Latinoamericano (acento neutro de América Latina, con seseo natural: pronuncia suavemente las 'c', 'z' y 's' como sonido de s latina; jamás utilices ceceo ibérico ni modismos de España).
-- Emoción y Calidez: ${tone}
-- Cadencia: Pausada, reflexiva y serena. Haz pausas tranquilas y sentidas de silencio entre cada verso u oración.
-- Verso final: Pronuncia la última palabra "Amén" en un susurro sumamente dulce, reverente y lleno de paz espiritual.
-
-Texto sagrado para locución:
-${prayerScript}`;
-
-    const response = await ai.models.generateContent({
-      model: "gemini-3.1-flash-tts-preview",
-      contents: [
-        {
-          parts: [{ text: prompt }],
-        },
-      ],
-      config: {
-        // @ts-ignore
-        responseModalities: ["AUDIO"],
-        speechConfig: {
-          voiceConfig: {
-            prebuiltVoiceConfig: { voiceName: voice || "Aoede" },
-          },
-        },
-      },
-    });
-
-    const base64Data =
-      response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data;
-
-    if (!base64Data) {
-      throw new Error(
-        "No se recibieron datos de audio del modelo de Gemini TTS."
-      );
-    }
-
-    const pcmBuffer = Buffer.from(base64Data, "base64");
-    const sampleRate = 24000;
-    const wavBuffer = pcmToWav(pcmBuffer, sampleRate, 1, 16);
-    const duration = pcmBuffer.length / (sampleRate * 2);
-    const audioDataUrl = `data:audio/wav;base64,${wavBuffer.toString("base64")}`;
-
-    // Generate balanced timeline marks across the segments
-    const speechSegments = DEFAULT_PRAYER_SEGMENTS.filter(
-      (s) => s.type === "speech"
-    );
-    const timePerSegment = duration / Math.max(1, speechSegments.length);
-    const timelineMarks = speechSegments.map((s, idx) => ({
-      id: s.id,
-      type: "speech" as const,
-      text: s.text,
-      startTime: idx * timePerSegment,
-      duration: timePerSegment,
-      isWhisper: s.isWhisper,
-    }));
-
-    res.json({
-      success: true,
-      audioUrl: audioDataUrl,
-      duration,
-      sampleRate,
-      timeline: timelineMarks,
-      totalSize: wavBuffer.length,
-      voice,
-    });
-  } catch (error: any) {
-    console.error("Error generating full TTS audio:", error);
-    let userMsg = error.message || "Error al generar el audio de la oración.";
-
-    if (userMsg.includes("429") || userMsg.includes("quota")) {
-      const match = userMsg.match(/retry in ([\d\.]+)s/i);
-      const delay = match ? Math.ceil(parseFloat(match[1])) : 45;
-      userMsg = `Límite temporal de cuota por minuto alcanzado. Por favor espera ${delay} segundos o utiliza la opción "Voz Directa Inmediata".`;
-    }
-
-    res.status(500).json({
-      success: false,
-      error: userMsg,
-    });
-  }
-});
 
 // Endpoint to generate a single segment (useful for progressive rendering)
 app.post("/api/tts/generate-segment", async (req, res) => {

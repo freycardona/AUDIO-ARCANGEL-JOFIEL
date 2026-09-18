@@ -39,13 +39,29 @@ const LATIN_CODES = [
 ];
 
 /**
- * Returns all available female Latin/Spanish voices on the device
+ * Check if a voice is a high-definition natural or neural voice
+ */
+export function isNaturalVoice(voice: SpeechSynthesisVoice): boolean {
+  const n = voice.name.toLowerCase();
+  return (
+    n.includes("natural") ||
+    n.includes("neural") ||
+    n.includes("online") ||
+    n.includes("google") ||
+    n.includes("siri") ||
+    n.includes("premium")
+  );
+}
+
+/**
+ * Returns all available female Latin/Spanish voices on the device,
+ * with high-quality Natural/Neural voices sorted at the top.
  */
 export function getAvailableFemaleLatinVoices(): SpeechSynthesisVoice[] {
   if (typeof window === "undefined" || !("speechSynthesis" in window)) return [];
   const voices = window.speechSynthesis.getVoices() || [];
 
-  return voices.filter((v) => {
+  const filtered = voices.filter((v) => {
     const l = v.lang.toLowerCase();
     const n = v.name.toLowerCase();
     if (!l.startsWith("es")) return false;
@@ -53,10 +69,18 @@ export function getAvailableFemaleLatinVoices(): SpeechSynthesisVoice[] {
     if (isMale) return false;
     return true;
   });
+
+  // Sort natural/neural voices first
+  return filtered.sort((a, b) => {
+    const aNat = isNaturalVoice(a) ? 1 : 0;
+    const bNat = isNaturalVoice(b) ? 1 : 0;
+    return bNat - aNat;
+  });
 }
 
 /**
- * Helper to find strictly the best Latin American Female voice available
+ * Helper to find strictly the best Latin American Female voice available,
+ * giving first priority to modern Natural/Neural online voices.
  */
 export function getBestLatinFemaleVoice(preferredName?: string): SpeechSynthesisVoice | null {
   if (typeof window === "undefined" || !("speechSynthesis" in window)) return null;
@@ -79,8 +103,16 @@ export function getBestLatinFemaleVoice(preferredName?: string): SpeechSynthesis
   });
 
   if (nonMaleEsVoices.length === 0) {
-    // If only generic voices exist, return any Spanish voice
     return voices.find((v) => v.lang.toLowerCase().startsWith("es")) || voices[0] || null;
+  }
+
+  // 0. Super priority: Latin American voice that is specifically "Natural" or "Neural"
+  for (const code of LATIN_CODES) {
+    const naturalMatch = nonMaleEsVoices.find((v) => {
+      const l = v.lang.toLowerCase();
+      return l.startsWith(code) && isNaturalVoice(v);
+    });
+    if (naturalMatch) return naturalMatch;
   }
 
   // 1. First priority: Latin American Spanish voice with known female name
