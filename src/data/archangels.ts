@@ -14,7 +14,7 @@ export const archangelsData: Archangel[] = [
     badgeBg: "bg-blue-100 text-blue-900 border-blue-300",
     headerGradient: "from-blue-600 via-indigo-600 to-sky-700",
     pestaña_1_altar: {
-      canal1_audio_url: "oracion_san_miguel.mp3",
+      canal1_audio_url: "/audio/oracion_san_miguel.mp3",
       canal2_audio_url_recommended: "frecuencia_528hz_miguel.mp3",
       canal2_audio_url_alterno: "frecuencia_396hz_liberacion.mp3",
       canal2_frecuencia_recommended: "528 Hz (Milagros y Escudo Protector)",
@@ -66,7 +66,7 @@ export const archangelsData: Archangel[] = [
     badgeBg: "bg-amber-100 text-amber-900 border-amber-300",
     headerGradient: "from-amber-500 via-yellow-400 to-amber-600",
     pestaña_1_altar: {
-      canal1_audio_url: "oracion_arcangel_jofiel.mp3",
+      canal1_audio_url: "/audio/oracion_arcangel_jofiel.mp3",
       canal2_audio_url_recommended: "frecuencia_432hz_sabiduria.mp3",
       canal2_audio_url_alterno: "frecuencia_528hz_transformacion.mp3",
       canal2_frecuencia_recommended: "432 Hz (Frecuencia Pitagórica y Paz Mental)",
@@ -118,7 +118,7 @@ export const archangelsData: Archangel[] = [
     badgeBg: "bg-pink-100 text-pink-900 border-pink-300",
     headerGradient: "from-pink-500 via-rose-400 to-pink-600",
     pestaña_1_altar: {
-      canal1_audio_url: "oracion_arcangel_chamuel.mp3",
+      canal1_audio_url: "/audio/oracion_arcangel_chamuel.mp3",
       canal2_audio_url_recommended: "frecuencia_639hz_amor.mp3",
       canal2_audio_url_alterno: "frecuencia_528hz_armonia.mp3",
       canal2_frecuencia_recommended: "639 Hz (Sanación de Relaciones y Corazón)",
@@ -170,7 +170,7 @@ export const archangelsData: Archangel[] = [
     badgeBg: "bg-sky-100 text-sky-900 border-sky-300",
     headerGradient: "from-sky-500 via-indigo-400 to-sky-600",
     pestaña_1_altar: {
-      canal1_audio_url: "oracion_arcangel_gabriel.mp3",
+      canal1_audio_url: "/audio/oracion_arcangel_gabriel.mp3",
       canal2_audio_url_recommended: "frecuencia_741hz_gabriel.mp3",
       canal2_audio_url_alterno: "frecuencia_144hz_claridad.mp3",
       canal2_frecuencia_recommended: "741 Hz (Expresión Divina y Resolución)",
@@ -222,7 +222,7 @@ export const archangelsData: Archangel[] = [
     badgeBg: "bg-emerald-100 text-emerald-900 border-emerald-300",
     headerGradient: "from-emerald-600 via-green-500 to-teal-700",
     pestaña_1_altar: {
-      canal1_audio_url: "oracion_arcangel_rafael.mp3",
+      canal1_audio_url: "/audio/oracion_arcangel_rafael.mp3",
       canal2_audio_url_recommended: "frecuencia_528hz_rafael.mp3",
       canal2_audio_url_alterno: "frecuencia_369hz_regeneracion.mp3",
       canal2_frecuencia_recommended: "528 Hz (Reparación de ADN y Vitalidad)",
@@ -274,7 +274,7 @@ export const archangelsData: Archangel[] = [
     badgeBg: "bg-orange-100 text-orange-900 border-orange-300",
     headerGradient: "from-orange-600 via-amber-600 to-red-600",
     pestaña_1_altar: {
-      canal1_audio_url: "oracion_arcangel_uriel.mp3",
+      canal1_audio_url: "/audio/oracion_arcangel_uriel.mp3",
       canal2_audio_url_recommended: "frecuencia_396hz_uriel.mp3",
       canal2_audio_url_alterno: "frecuencia_888hz_abundancia.mp3",
       canal2_frecuencia_recommended: "396 Hz (Disolución del Miedo a la Carencia)",
@@ -324,7 +324,7 @@ export const archangelsData: Archangel[] = [
     badgeBg: "bg-purple-100 text-purple-900 border-purple-300",
     headerGradient: "from-purple-600 via-violet-600 to-indigo-800",
     pestaña_1_altar: {
-      canal1_audio_url: "oracion_arcangel_zadkiel.mp3",
+      canal1_audio_url: "/audio/oracion_arcangel_zadkiel.mp3",
       canal2_audio_url_recommended: "frecuencia_417hz_zadkiel.mp3",
       canal2_audio_url_alterno: "frecuencia_963hz_conexion.mp3",
       canal2_frecuencia_recommended: "417 Hz (Disolución de Traumas y Energía Pasada)",

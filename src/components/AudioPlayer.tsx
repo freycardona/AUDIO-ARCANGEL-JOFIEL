@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from "react";
 import { Archangel, AdvancedAudioSettings } from "../types";
-import { ambientSound } from "../utils/ambientAudio";
 import { browserTts, getBestLatinFemaleVoice } from "../utils/browserTts";
 import {
   Play,
@@ -12,6 +11,8 @@ import {
   Radio,
   Heart,
   Mic,
+  VolumeX,
+  Headphones,
 } from "lucide-react";
 
 interface AudioPlayerProps {
@@ -21,7 +22,7 @@ interface AudioPlayerProps {
 
 export const AudioPlayer: React.FC<AudioPlayerProps> = ({ arcangel, settings }) => {
   const [isPlaying, setIsPlaying] = useState<boolean>(false);
-  const [isLoadingVoice, setIsLoadingVoice] = useState<boolean>(false);
+  const [isVoicePlaying, setIsVoicePlaying] = useState<boolean>(false);
   const [selectedBackground, setSelectedBackground] = useState<"recomendado" | "alterno">("recomendado");
   const [activeFrequencyHz, setActiveFrequencyHz] = useState<number>(
     arcangel.pestaña_1_altar.canal2_hz_base
@@ -31,15 +32,10 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ arcangel, settings }) 
   const voiceAudioRef = useRef<HTMLAudioElement | null>(null);
   const ambientAudioRef = useRef<HTMLAudioElement | null>(null);
 
-  // Audio cache for studio voices
-  const ttsAudioCache = useRef<Record<string, string>>({});
-
   // Web Audio synth fallback oscillator for 100% guaranteed real Hz sound
   const synthCtxRef = useRef<AudioContext | null>(null);
   const synthOscRef = useRef<OscillatorNode | null>(null);
   const synthGainRef = useRef<GainNode | null>(null);
-  const voiceSourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
-  const voiceGainNodeRef = useRef<GainNode | null>(null);
 
   // Update selected frequency when changing arcangel or background mode
   useEffect(() => {
@@ -83,10 +79,10 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ arcangel, settings }) 
       filter.type = "lowpass";
       filter.frequency.setValueAtTime(1200, ctx.currentTime);
 
-      gain.gain.setValueAtTime(0.001, ctx.currentTime);
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime);
       gain.gain.exponentialRampToValueAtTime(
         Math.max(0.001, volume * 0.25),
-        ctx.currentTime + 1.5
+        ctx.currentTime + 1.2
       );
 
       osc.connect(filter);
@@ -105,7 +101,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ arcangel, settings }) 
     if (synthGainRef.current && synthCtxRef.current) {
       try {
         const ctx = synthCtxRef.current;
-        synthGainRef.current.gain.linearRampToValueAtTime(0.0001, ctx.currentTime + 0.8);
+        synthGainRef.current.gain.linearRampToValueAtTime(0.0001, ctx.currentTime + 0.5);
         setTimeout(() => {
           if (synthOscRef.current) {
             try {
@@ -116,64 +112,28 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ arcangel, settings }) 
             }
             synthOscRef.current = null;
           }
-        }, 850);
+        }, 550);
       } catch {
         // ignore
       }
     }
   };
 
-  // Setup dual audio channels when Arcángel or frequency track changes
-  useEffect(() => {
-    // Pause previous audio
-    if (voiceAudioRef.current) voiceAudioRef.current.pause();
-    if (ambientAudioRef.current) ambientAudioRef.current.pause();
-    browserTts.stop();
-    window.speechSynthesis?.cancel();
-    stopSacredOscillator();
-
-    // Canal 2: Frecuencia de Fondo
-    let ambientUrl = `/audio/frecuencias/${arcangel.pestaña_1_altar.canal2_audio_url_recommended || "ambient.mp3"}`;
-    if (selectedBackground === "alterno") {
-      ambientUrl = `/audio/frecuencias/${arcangel.pestaña_1_altar.canal2_audio_url_alterno || "ambient.mp3"}`;
-    }
-
-    ambientAudioRef.current = new Audio(ambientUrl);
-    ambientAudioRef.current.loop = true;
-    ambientAudioRef.current.volume = settings.ambientVolume;
-
-    // If already playing, resume with the new Arcangel
-    if (isPlaying) {
-      playSacredPrayer();
-      ambientAudioRef.current
-        .play()
-        .catch(() => {
-          startSacredOscillator(activeFrequencyHz, settings.ambientVolume);
-        });
-    }
-
-    return () => {
-      if (voiceAudioRef.current) voiceAudioRef.current.pause();
-      if (ambientAudioRef.current) ambientAudioRef.current.pause();
-      browserTts.stop();
-      window.speechSynthesis?.cancel();
-      stopSacredOscillator();
-    };
-  }, [arcangel, selectedBackground]);
-
-  // Handle Speech Synthesis with 100% Latin American Female Voice & Sacred Pauses
+  // Browser speech synthesis fallback with 100% Latin female voice
   const playBrowserFemaleSpeech = () => {
     browserTts.stop();
     if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
     window.speechSynthesis.cancel();
 
-    // If segments exist, play with reverent pauses
+    setIsVoicePlaying(true);
+
     if (arcangel.pestaña_1_altar.segments && arcangel.pestaña_1_altar.segments.length > 0) {
       browserTts.playPrayer(
         arcangel.pestaña_1_altar.segments,
         {
           onSegmentChange: () => {},
           onEnded: () => {
+            setIsVoicePlaying(false);
             if (!settings.infiniteLoopAmbient) {
               setIsPlaying(false);
               stopSacredOscillator();
@@ -181,7 +141,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ arcangel, settings }) 
             }
           },
           onError: () => {
-            setIsPlaying(false);
+            setIsVoicePlaying(false);
           },
         },
         {
@@ -200,11 +160,12 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ arcangel, settings }) 
       } else {
         utterance.lang = "es-419";
       }
-      utterance.pitch = settings.voicePitch ?? 1.15; // Distinctive feminine warm pitch
-      utterance.rate = settings.voiceSpeed ?? 0.85;   // Contemplative cadence
+      utterance.pitch = settings.voicePitch ?? 1.15;
+      utterance.rate = settings.voiceSpeed ?? 0.85;
       utterance.volume = settings.voiceVolume;
 
       utterance.onend = () => {
+        setIsVoicePlaying(false);
         if (!settings.infiniteLoopAmbient) {
           setIsPlaying(false);
           stopSacredOscillator();
@@ -212,23 +173,24 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ arcangel, settings }) 
         }
       };
 
+      utterance.onerror = () => {
+        setIsVoicePlaying(false);
+      };
+
       window.speechSynthesis.speak(utterance);
     }
   };
 
-  // Play prayer with selected Latin Female voice (Studio Aoede/Kore or Browser Female)
-  const stopAllVoiceAudio = () => {
-    if (voiceSourceNodeRef.current) {
-      try {
-        voiceSourceNodeRef.current.stop();
-        voiceSourceNodeRef.current.disconnect();
-      } catch {}
-      voiceSourceNodeRef.current = null;
-    }
+  const stopAllAudio = () => {
     if (voiceAudioRef.current) {
       try {
         voiceAudioRef.current.pause();
         voiceAudioRef.current.currentTime = 0;
+      } catch {}
+    }
+    if (ambientAudioRef.current) {
+      try {
+        ambientAudioRef.current.pause();
       } catch {}
     }
     browserTts.stop();
@@ -237,144 +199,56 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ arcangel, settings }) 
         window.speechSynthesis.cancel();
       } catch {}
     }
+    stopSacredOscillator();
+    setIsVoicePlaying(false);
   };
 
-  const playSacredPrayer = async () => {
-    const voiceType = settings.femaleVoiceType || "gemini_aoede";
+  // Get current prayer audio URL
+  const getPrayerAudioUrl = () => {
+    return arcangel.pestaña_1_altar.canal1_audio_url || `/audio/oracion_${arcangel.id}.mp3`;
+  };
 
-    // If browser female voice requested, run immediately
-    if (voiceType === "browser_female") {
-      playBrowserFemaleSpeech();
-      return;
+  // Preload and attach audio sources whenever Arcangel or background track changes
+  useEffect(() => {
+    stopAllAudio();
+    setIsPlaying(false);
+
+    // 1. Canal 1 - Oración Voz Sagrada
+    if (voiceAudioRef.current) {
+      const prayerUrl = getPrayerAudioUrl();
+      voiceAudioRef.current.src = prayerUrl;
+      voiceAudioRef.current.preload = "auto";
+      voiceAudioRef.current.volume = settings.voiceVolume;
+      voiceAudioRef.current.load();
     }
 
-    const geminiVoiceName =
-      voiceType === "gemini_kore"
-        ? "Kore"
-        : voiceType === "gemini_zephyr"
-        ? "Zephyr"
-        : "Aoede";
-    const cacheKey = `${arcangel.id}-${geminiVoiceName}`;
+    // 2. Canal 2 - Frecuencia Sagrada
+    if (ambientAudioRef.current) {
+      const ambTrack =
+        selectedBackground === "alterno"
+          ? arcangel.pestaña_1_altar.canal2_audio_url_alterno
+          : arcangel.pestaña_1_altar.canal2_audio_url_recommended || "ambient.mp3";
+      ambientAudioRef.current.src = `/audio/frecuencias/${ambTrack}`;
+      ambientAudioRef.current.preload = "auto";
+      ambientAudioRef.current.loop = true;
+      ambientAudioRef.current.volume = settings.ambientVolume;
+      ambientAudioRef.current.load();
+    }
 
-    const playAudioUrl = async (url: string) => {
-      try {
-        stopAllVoiceAudio();
-
-        // Priority 1: Web Audio API buffer playback through the same AudioContext as the frequency
-        if (!synthCtxRef.current) {
-          const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-          synthCtxRef.current = new AudioCtx();
-        }
-        if (synthCtxRef.current.state === "suspended") {
-          await synthCtxRef.current.resume();
-        }
-        const ctx = synthCtxRef.current;
-
-        const resp = await fetch(url);
-        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
-        const arrayBuf = await resp.arrayBuffer();
-        const decodedBuf = await ctx.decodeAudioData(arrayBuf);
-
-        const source = ctx.createBufferSource();
-        source.buffer = decodedBuf;
-
-        const gainNode = ctx.createGain();
-        gainNode.gain.setValueAtTime(Math.max(0.01, settings.voiceVolume), ctx.currentTime);
-
-        source.connect(gainNode);
-        gainNode.connect(ctx.destination);
-
-        source.onended = () => {
-          voiceSourceNodeRef.current = null;
-          if (!settings.infiniteLoopAmbient) {
-            setIsPlaying(false);
-            stopSacredOscillator();
-            if (ambientAudioRef.current) ambientAudioRef.current.pause();
-          }
-        };
-
-        source.start(0);
-        voiceSourceNodeRef.current = source;
-        voiceGainNodeRef.current = gainNode;
-      } catch (err) {
-        console.warn("Web Audio buffer playback failed, trying HTML5 Audio fallback:", err);
-        // Priority 2: HTML5 Audio element fallback
-        try {
-          if (!voiceAudioRef.current) {
-            voiceAudioRef.current = new Audio();
-          }
-          voiceAudioRef.current.src = url;
-          voiceAudioRef.current.volume = Math.max(0.1, settings.voiceVolume);
-          voiceAudioRef.current.onended = () => {
-            if (!settings.infiniteLoopAmbient) {
-              setIsPlaying(false);
-              stopSacredOscillator();
-              if (ambientAudioRef.current) ambientAudioRef.current.pause();
-            }
-          };
-          await voiceAudioRef.current.play();
-        } catch (e2) {
-          console.warn("HTML5 audio playback also failed, falling back to Web Speech:", e2);
-          // Priority 3: Device speech synthesis
-          playBrowserFemaleSpeech();
-        }
-      }
+    return () => {
+      stopAllAudio();
     };
+  }, [arcangel, selectedBackground]);
 
-    if (ttsAudioCache.current[cacheKey]) {
-      await playAudioUrl(ttsAudioCache.current[cacheKey]);
-      return;
-    }
-
-    // Fetch from backend with seamless fallback to browser female voice
-    setIsLoadingVoice(true);
-    try {
-      const res = await fetch("/api/tts/generate-full", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          text: arcangel.pestaña_1_altar.oracion_texto,
-          voice: geminiVoiceName,
-        }),
-      });
-
-      if (!res.ok) {
-        throw new Error(`TTS API error: ${res.status}`);
-      }
-
-      const data = await res.json();
-      if (data.success && data.audioUrl) {
-        ttsAudioCache.current[cacheKey] = data.audioUrl;
-        await playAudioUrl(data.audioUrl);
-      } else {
-        throw new Error("No audio returned");
-      }
-    } catch (err) {
-      console.warn("Fell back to device female voice:", err);
-      // Gracefully fall back to the browser's Latin American female voice
-      playBrowserFemaleSpeech();
-    } finally {
-      setIsLoadingVoice(false);
-    }
-  };
-
-  // Real-time Ducking and Volume Adjustments
+  // Adjust volumes in real time (including ducking)
   useEffect(() => {
     if (voiceAudioRef.current) {
       voiceAudioRef.current.volume = settings.voiceVolume;
     }
 
-    if (voiceGainNodeRef.current && synthCtxRef.current) {
-      voiceGainNodeRef.current.gain.setValueAtTime(
-        Math.max(0.01, settings.voiceVolume),
-        synthCtxRef.current.currentTime
-      );
-    }
-
-    // Audio Ducking logic: reduce background volume when voice is playing
     const effectiveAmbientVol =
-      settings.audioDucking && isPlaying
-        ? settings.ambientVolume * 0.4
+      settings.audioDucking && isVoicePlaying
+        ? settings.ambientVolume * 0.35
         : settings.ambientVolume;
 
     if (ambientAudioRef.current) {
@@ -387,36 +261,91 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ arcangel, settings }) 
         synthCtxRef.current.currentTime
       );
     }
-  }, [settings, isPlaying]);
+  }, [settings.voiceVolume, settings.ambientVolume, settings.audioDucking, isVoicePlaying]);
+
+  // Start Voice Channel directly
+  const startVoicePlayback = () => {
+    if (settings.femaleVoiceType === "browser_female") {
+      playBrowserFemaleSpeech();
+      return;
+    }
+
+    if (voiceAudioRef.current) {
+      const v = voiceAudioRef.current;
+      v.currentTime = 0;
+      v.volume = settings.voiceVolume;
+      setIsVoicePlaying(true);
+      const promise = v.play();
+      if (promise !== undefined) {
+        promise.catch((err) => {
+          console.warn("Direct HTML5 voice audio play error, switching to device TTS:", err);
+          playBrowserFemaleSpeech();
+        });
+      }
+    } else {
+      playBrowserFemaleSpeech();
+    }
+  };
+
+  // Start Ambient Frequency Channel directly
+  const startAmbientPlayback = () => {
+    const effectiveAmbientVol =
+      settings.audioDucking ? settings.ambientVolume * 0.35 : settings.ambientVolume;
+
+    if (ambientAudioRef.current) {
+      const a = ambientAudioRef.current;
+      a.volume = effectiveAmbientVol;
+      const promise = a.play();
+      if (promise !== undefined) {
+        promise.catch(() => {
+          // If browser blocks audio element file, fallback to Web Audio oscillator
+          startSacredOscillator(activeFrequencyHz, effectiveAmbientVol);
+        });
+      }
+    } else {
+      startSacredOscillator(activeFrequencyHz, effectiveAmbientVol);
+    }
+  };
 
   // Main PLAY / PAUSE Handler
   const togglePlayback = () => {
     if (isPlaying) {
-      stopAllVoiceAudio();
-      if (ambientAudioRef.current) ambientAudioRef.current.pause();
-      stopSacredOscillator();
+      stopAllAudio();
       setIsPlaying(false);
     } else {
       setIsPlaying(true);
 
-      // 1. Instantly unpause Web Speech & unlock AudioContext within this user click event
+      // Unpause speech synthesis if suspended by browser
       if (typeof window !== "undefined" && "speechSynthesis" in window) {
         if (window.speechSynthesis.paused) {
           window.speechSynthesis.resume();
         }
       }
 
-      // 2. Start Channel 2 (Ambient Solfeggio Hz) IMMEDIATELY so the user hears music instantly
-      startSacredOscillator(activeFrequencyHz, settings.ambientVolume);
-      if (ambientAudioRef.current) {
-        ambientAudioRef.current.volume = settings.ambientVolume;
-        ambientAudioRef.current.play().catch(() => {
-          // oscillator is already actively generating sound
-        });
+      // Resume AudioContext within click handler to unlock browser permissions
+      if (synthCtxRef.current && synthCtxRef.current.state === "suspended") {
+        synthCtxRef.current.resume();
       }
 
-      // 3. Start Channel 1 (Voz de Oración)
-      playSacredPrayer();
+      // 1. INICIAR CANAL 1: VOZ DE LA ORACIÓN SAGRADA
+      startVoicePlayback();
+
+      // 2. INICIAR CANAL 2: FRECUENCIA SOLFEGGIO DE FONDO
+      startAmbientPlayback();
+    }
+  };
+
+  // Individual test button for voice
+  const handleTestVoiceOnly = (e: React.MouseEvent) => {
+    e.stopPropagation();
+    if (isVoicePlaying) {
+      if (voiceAudioRef.current) voiceAudioRef.current.pause();
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      }
+      setIsVoicePlaying(false);
+    } else {
+      startVoicePlayback();
     }
   };
 
@@ -512,11 +441,37 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ arcangel, settings }) 
         </p>
       </div>
 
-      {/* 🌸 INDICADOR DE VOZ NARRADORA FEMENINA LATINA */}
-      <div className="mb-5 z-10 flex items-center space-x-2 bg-neutral-900/80 backdrop-blur-md px-3.5 py-1.5 rounded-full border border-neutral-800 text-xs text-neutral-300 shadow-sm">
-        <Heart className="w-3.5 h-3.5 text-pink-400 fill-pink-400 shrink-0" />
-        <span className="text-neutral-400">Voz Narradora:</span>
-        <span className="text-pink-300 font-semibold">{voiceLabel}</span>
+      {/* 🌸 MONITOR DE CANALES DE AUDIO (VOZ Y FRECUENCIA) */}
+      <div className="w-full grid grid-cols-2 gap-2 mb-4 z-10 text-[11px]">
+        {/* Canal 1: Voz Sagrada */}
+        <div
+          className={`flex items-center space-x-2 px-3 py-2 rounded-xl border transition-all ${
+            isVoicePlaying
+              ? "bg-pink-950/40 border-pink-500/50 text-pink-200"
+              : "bg-neutral-900/60 border-neutral-800 text-neutral-400"
+          }`}
+        >
+          <Mic className={`w-3.5 h-3.5 ${isVoicePlaying ? "text-pink-400 animate-pulse" : "text-neutral-500"}`} />
+          <div className="truncate">
+            <span className="font-semibold block text-[10px] uppercase tracking-wider text-pink-400">Canal 1: Voz</span>
+            <span className="truncate">{isVoicePlaying ? "Locución Activa" : "Voz Preparada"}</span>
+          </div>
+        </div>
+
+        {/* Canal 2: Frecuencia Solfeggio */}
+        <div
+          className={`flex items-center space-x-2 px-3 py-2 rounded-xl border transition-all ${
+            isPlaying
+              ? "bg-amber-950/40 border-amber-500/50 text-amber-200"
+              : "bg-neutral-900/60 border-neutral-800 text-neutral-400"
+          }`}
+        >
+          <Waves className={`w-3.5 h-3.5 ${isPlaying ? "text-amber-400 animate-pulse" : "text-neutral-500"}`} />
+          <div className="truncate">
+            <span className="font-semibold block text-[10px] uppercase tracking-wider text-amber-400">Canal 2: Solfeggio</span>
+            <span className="truncate">{isPlaying ? `${activeFrequencyHz} Hz Sonando` : `${activeFrequencyHz} Hz Listo`}</span>
+          </div>
+        </div>
       </div>
 
       {/* 🎛️ SELECTOR DE PAISAJES SONOROS DE MEDITACIÓN (CANAL 2) */}
@@ -524,7 +479,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ arcangel, settings }) 
         <div className="flex items-center justify-between mb-3">
           <p className="text-xs font-bold uppercase tracking-wider text-neutral-400 flex items-center space-x-1.5">
             <Radio className="w-3.5 h-3.5 text-amber-400" />
-            <span>Canal 2 • Frecuencias Sagradas de Meditación</span>
+            <span>Frecuencias Sagradas de Meditación</span>
           </p>
           <span className="text-[11px] font-mono text-neutral-400 bg-neutral-800 px-2 py-0.5 rounded-md">
             {activeFrequencyHz} Hz
@@ -592,30 +547,73 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ arcangel, settings }) 
       </button>
 
       <p className="text-xs text-neutral-400 mt-3 z-10 text-center">
-        {isPlaying && isLoadingVoice ? (
-          <span className="text-amber-400 font-medium animate-pulse">
-            Sintonizando voz sagrada • Frecuencia armónica sonando...
-          </span>
-        ) : isPlaying ? (
-          <span className="text-emerald-400 font-medium">
-            Reproduciendo Oración Suprema • Audio Activo
-          </span>
-        ) : isLoadingVoice ? (
-          <span className="text-amber-400 font-medium animate-pulse">
-            Preparando voz celestial...
+        {isPlaying ? (
+          <span className="text-emerald-400 font-medium flex items-center justify-center space-x-1.5">
+            <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping inline-block" />
+            <span>Reproduciendo Oración Suprema con Frecuencia Sagrada</span>
           </span>
         ) : (
-          "Toca para iniciar la invocación sagrada"
+          "Toca para iniciar la invocación sagrada (Voz + Frecuencia)"
         )}
       </p>
 
-      {/* Hidden DOM audio elements to ensure browser media permissions in iframes */}
-      <audio ref={voiceAudioRef} id="sacred-prayer-audio-element" preload="auto" className="hidden" />
-      <audio ref={ambientAudioRef} id="sacred-ambient-audio-element" preload="auto" loop className="hidden" />
+      {/* DOM audio elements explicitly wired with auto preload and onended listeners */}
+      <audio
+        ref={voiceAudioRef}
+        id="sacred-prayer-audio-element"
+        preload="auto"
+        className="hidden"
+        onPlay={() => setIsVoicePlaying(true)}
+        onPause={() => setIsVoicePlaying(false)}
+        onEnded={() => {
+          setIsVoicePlaying(false);
+          if (!settings.infiniteLoopAmbient) {
+            setIsPlaying(false);
+            if (ambientAudioRef.current) ambientAudioRef.current.pause();
+            stopSacredOscillator();
+          } else {
+            // Restore ambient volume to full
+            if (ambientAudioRef.current) {
+              ambientAudioRef.current.volume = settings.ambientVolume;
+            }
+          }
+        }}
+        onError={() => {
+          console.warn("Voice audio element error, initiating fallback to Web Speech");
+          setIsVoicePlaying(false);
+          if (isPlaying) {
+            playBrowserFemaleSpeech();
+          }
+        }}
+      />
+      <audio
+        ref={ambientAudioRef}
+        id="sacred-ambient-audio-element"
+        preload="auto"
+        loop
+        className="hidden"
+      />
 
       {/* Caja de Texto Desplegable con la Oración Suprema */}
-      <div className="mt-6 text-neutral-300 text-xs sm:text-sm text-center italic bg-neutral-900/60 p-4 rounded-2xl border border-neutral-800/80 max-h-32 overflow-y-auto leading-relaxed z-10 font-serif">
-        "{arcangel.pestaña_1_altar.oracion_texto}"
+      <div className="mt-6 w-full text-neutral-300 text-xs sm:text-sm bg-neutral-900/60 p-4 rounded-2xl border border-neutral-800/80 z-10 font-serif">
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-[11px] font-sans font-bold uppercase tracking-wider text-neutral-400 flex items-center space-x-1">
+            <Heart className="w-3 h-3 text-pink-400" />
+            <span>Texto de la Oración Suprema</span>
+          </span>
+          <button
+            type="button"
+            onClick={handleTestVoiceOnly}
+            className="text-[11px] font-sans text-pink-300 hover:text-pink-200 bg-pink-950/60 hover:bg-pink-900/60 border border-pink-800/60 px-2.5 py-1 rounded-full flex items-center space-x-1 transition-all"
+            title="Escuchar locución de la oración en solitario"
+          >
+            <Mic className="w-3 h-3" />
+            <span>{isVoicePlaying ? "Pausar Voz" : "Solo Voz"}</span>
+          </button>
+        </div>
+        <p className="italic text-center leading-relaxed max-h-32 overflow-y-auto">
+          "{arcangel.pestaña_1_altar.oracion_texto}"
+        </p>
       </div>
     </div>
   );
