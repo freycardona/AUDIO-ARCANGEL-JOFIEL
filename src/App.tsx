@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect } from "react";
 import { archangelsData } from "./data/archangels";
 import { AudioPlayer } from "./components/AudioPlayer";
 import { VoiceSettings } from "./components/VoiceSettings";
@@ -24,6 +24,33 @@ import {
 export const App: React.FC = () => {
   // 1. Arcángel seleccionado (inicia con San Miguel por defecto)
   const [selectedArcangel, setSelectedArcangel] = useState<Archangel>(archangelsData[0]);
+
+  // Referencias para auto-centrado del menú superior
+  const navCarouselRef = useRef<HTMLDivElement | null>(null);
+  const arcangelButtonRefs = useRef<Record<string, HTMLButtonElement | null>>({});
+
+  // Desplazar automáticamente la opción seleccionada al centro del contenedor
+  useEffect(() => {
+    const scrollToSelected = () => {
+      const selectedBtn = arcangelButtonRefs.current[selectedArcangel.id];
+      const container = navCarouselRef.current;
+      if (selectedBtn && container) {
+        const containerWidth = container.offsetWidth;
+        const btnLeft = selectedBtn.offsetLeft;
+        const btnWidth = selectedBtn.offsetWidth;
+        const targetScrollLeft = btnLeft - containerWidth / 2 + btnWidth / 2;
+
+        container.scrollTo({
+          left: Math.max(0, targetScrollLeft),
+          behavior: "smooth",
+        });
+      }
+    };
+
+    scrollToSelected();
+    const timer = setTimeout(scrollToSelected, 120);
+    return () => clearTimeout(timer);
+  }, [selectedArcangel.id]);
 
   // 2. Pestaña de información activa
   const [activeTab, setActiveTab] = useState<"altar" | "conocimiento" | "correspondencias" | "ajustes">("altar");
@@ -104,12 +131,19 @@ export const App: React.FC = () => {
           </div>
 
           {/* Selector carrusel con los 7 arcángeles */}
-          <div className="flex space-x-2 overflow-x-auto pb-1 scrollbar-thin scrollbar-thumb-neutral-800 justify-start sm:justify-center">
+          <div
+            ref={navCarouselRef}
+            className="flex space-x-2 overflow-x-auto pb-1 scrollbar-thin scrollbar-thumb-neutral-800 justify-start scroll-smooth px-1"
+            style={{ WebkitOverflowScrolling: "touch" }}
+          >
             {archangelsData.map((arcangel) => {
               const isSelected = selectedArcangel.id === arcangel.id;
               return (
                 <button
                   key={arcangel.id}
+                  ref={(el) => {
+                    arcangelButtonRefs.current[arcangel.id] = el;
+                  }}
                   id={`btn-select-archangel-${arcangel.id}`}
                   type="button"
                   onClick={() => {
