@@ -152,6 +152,8 @@ export interface PlayPrayerOptions {
   volume?: number;
 }
 
+let activeSampleUtterance: SpeechSynthesisUtterance | null = null;
+
 export function speakSampleFemaleVoice(
   preferredVoiceName?: string,
   pitch = 1.15,
@@ -160,10 +162,16 @@ export function speakSampleFemaleVoice(
 ) {
   if (typeof window === "undefined" || !("speechSynthesis" in window)) return;
   window.speechSynthesis.cancel();
+  if (window.speechSynthesis.paused) {
+    window.speechSynthesis.resume();
+  }
+
   const sample =
     customText ||
     "Amado ser de luz, que la paz y la sabiduría divina iluminen tu camino.";
   const utterance = new SpeechSynthesisUtterance(sample);
+  activeSampleUtterance = utterance;
+
   const voice = getBestLatinFemaleVoice(preferredVoiceName);
   if (voice) {
     utterance.voice = voice;
@@ -174,12 +182,20 @@ export function speakSampleFemaleVoice(
   utterance.rate = rate;
   utterance.pitch = pitch;
   utterance.volume = 1.0;
+  utterance.onend = () => {
+    activeSampleUtterance = null;
+  };
+  utterance.onerror = () => {
+    activeSampleUtterance = null;
+  };
+
   window.speechSynthesis.speak(utterance);
 }
 
 class BrowserTtsEngine {
   private isCancelled = false;
   private currentTimeout: any = null;
+  private currentUtterance: SpeechSynthesisUtterance | null = null;
 
   public stop() {
     this.isCancelled = true;
@@ -187,6 +203,7 @@ class BrowserTtsEngine {
       clearTimeout(this.currentTimeout);
       this.currentTimeout = null;
     }
+    this.currentUtterance = null;
     if (typeof window !== "undefined" && "speechSynthesis" in window) {
       window.speechSynthesis.cancel();
     }
@@ -203,6 +220,10 @@ class BrowserTtsEngine {
     if (typeof window === "undefined" || !("speechSynthesis" in window)) {
       handlers.onError("Tu navegador no soporta síntesis de voz Web Speech.");
       return;
+    }
+
+    if (window.speechSynthesis.paused) {
+      window.speechSynthesis.resume();
     }
 
     // Force voice list resolution if needed
@@ -243,7 +264,14 @@ class BrowserTtsEngine {
         handlers.onSegmentChange(seg.id, false);
 
         await new Promise<void>((resolve) => {
+          if (this.isCancelled) return resolve();
+          if (window.speechSynthesis.paused) {
+            window.speechSynthesis.resume();
+          }
+
           const utterance = new SpeechSynthesisUtterance(seg.text);
+          this.currentUtterance = utterance;
+
           if (esVoice) {
             utterance.voice = esVoice;
             utterance.lang = esVoice.lang || "es-419";
@@ -254,9 +282,13 @@ class BrowserTtsEngine {
           utterance.pitch = seg.isWhisper ? basePitch * 0.9 : basePitch;
           utterance.volume = seg.isWhisper ? baseVolume * 0.6 : baseVolume;
 
-          utterance.onend = () => resolve();
+          utterance.onend = () => {
+            this.currentUtterance = null;
+            resolve();
+          };
           utterance.onerror = (e) => {
-            console.warn("SpeechSynthesis error:", e);
+            console.warn("SpeechSynthesis utterance event:", e);
+            this.currentUtterance = null;
             resolve();
           };
 

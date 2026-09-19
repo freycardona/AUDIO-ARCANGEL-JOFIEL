@@ -233,18 +233,30 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ arcangel, settings }) 
         : "Aoede";
     const cacheKey = `${arcangel.id}-${geminiVoiceName}`;
 
-    if (ttsAudioCache.current[cacheKey]) {
-      const audioUrl = ttsAudioCache.current[cacheKey];
-      voiceAudioRef.current = new Audio(audioUrl);
-      voiceAudioRef.current.volume = settings.voiceVolume;
-      voiceAudioRef.current.onended = () => {
-        if (!settings.infiniteLoopAmbient) {
-          setIsPlaying(false);
-          stopSacredOscillator();
-          if (ambientAudioRef.current) ambientAudioRef.current.pause();
+    const playAudioUrl = async (url: string) => {
+      try {
+        if (!voiceAudioRef.current) {
+          voiceAudioRef.current = new Audio();
         }
-      };
-      voiceAudioRef.current.play().catch(() => playBrowserFemaleSpeech());
+        voiceAudioRef.current.pause();
+        voiceAudioRef.current.src = url;
+        voiceAudioRef.current.volume = Math.max(0.1, settings.voiceVolume);
+        voiceAudioRef.current.onended = () => {
+          if (!settings.infiniteLoopAmbient) {
+            setIsPlaying(false);
+            stopSacredOscillator();
+            if (ambientAudioRef.current) ambientAudioRef.current.pause();
+          }
+        };
+        await voiceAudioRef.current.play();
+      } catch (err) {
+        console.warn("Audio play() interrupted or rejected, falling back to Web Speech:", err);
+        playBrowserFemaleSpeech();
+      }
+    };
+
+    if (ttsAudioCache.current[cacheKey]) {
+      await playAudioUrl(ttsAudioCache.current[cacheKey]);
       return;
     }
 
@@ -261,26 +273,18 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ arcangel, settings }) 
       });
 
       if (!res.ok) {
-        throw new Error("TTS API unavailable");
+        throw new Error(`TTS API error: ${res.status}`);
       }
 
       const data = await res.json();
       if (data.success && data.audioUrl) {
         ttsAudioCache.current[cacheKey] = data.audioUrl;
-        voiceAudioRef.current = new Audio(data.audioUrl);
-        voiceAudioRef.current.volume = settings.voiceVolume;
-        voiceAudioRef.current.onended = () => {
-          if (!settings.infiniteLoopAmbient) {
-            setIsPlaying(false);
-            stopSacredOscillator();
-            if (ambientAudioRef.current) ambientAudioRef.current.pause();
-          }
-        };
-        await voiceAudioRef.current.play();
+        await playAudioUrl(data.audioUrl);
       } else {
         throw new Error("No audio returned");
       }
     } catch (err) {
+      console.warn("Fell back to device female voice:", err);
       // Gracefully fall back to the browser's Latin American female voice
       playBrowserFemaleSpeech();
     } finally {
@@ -318,23 +322,32 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ arcangel, settings }) 
       if (voiceAudioRef.current) voiceAudioRef.current.pause();
       if (ambientAudioRef.current) ambientAudioRef.current.pause();
       browserTts.stop();
-      window.speechSynthesis?.cancel();
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        window.speechSynthesis.cancel();
+      }
       stopSacredOscillator();
       setIsPlaying(false);
     } else {
       setIsPlaying(true);
 
-      // Start Channel 1 (Voz Latina Femenina)
-      playSacredPrayer();
-
-      // Start Channel 2 (Ambient Hz)
-      if (ambientAudioRef.current) {
-        ambientAudioRef.current
-          .play()
-          .catch(() => {
-            startSacredOscillator(activeFrequencyHz, settings.ambientVolume);
-          });
+      // 1. Instantly unpause Web Speech & unlock Audio within this user click event
+      if (typeof window !== "undefined" && "speechSynthesis" in window) {
+        if (window.speechSynthesis.paused) {
+          window.speechSynthesis.resume();
+        }
       }
+
+      // 2. Start Channel 2 (Ambient Solfeggio Hz) IMMEDIATELY so the user hears music instantly
+      startSacredOscillator(activeFrequencyHz, settings.ambientVolume);
+      if (ambientAudioRef.current) {
+        ambientAudioRef.current.volume = settings.ambientVolume;
+        ambientAudioRef.current.play().catch(() => {
+          // oscillator is already actively generating sound
+        });
+      }
+
+      // 3. Start Channel 1 (Voz de Oración)
+      playSacredPrayer();
     }
   };
 
@@ -509,12 +522,22 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ arcangel, settings }) 
         )}
       </button>
 
-      <p className="text-xs text-neutral-400 mt-3 z-10">
-        {isPlaying
-          ? "Reproduciendo Oración Suprema con Voz Latina Femenina"
-          : isLoadingVoice
-          ? "Preparando voz de oración…"
-          : "Toca para iniciar la invocación sagrada"}
+      <p className="text-xs text-neutral-400 mt-3 z-10 text-center">
+        {isPlaying && isLoadingVoice ? (
+          <span className="text-amber-400 font-medium animate-pulse">
+            Sintonizando voz sagrada • Frecuencia armónica sonando...
+          </span>
+        ) : isPlaying ? (
+          <span className="text-emerald-400 font-medium">
+            Reproduciendo Oración Suprema • Audio Activo
+          </span>
+        ) : isLoadingVoice ? (
+          <span className="text-amber-400 font-medium animate-pulse">
+            Preparando voz celestial...
+          </span>
+        ) : (
+          "Toca para iniciar la invocación sagrada"
+        )}
       </p>
 
       {/* Caja de Texto Desplegable con la Oración Suprema */}

@@ -14,6 +14,26 @@ const PORT = 3000;
 app.use(express.json({ limit: "50mb" }));
 app.use(express.urlencoded({ extended: true, limit: "50mb" }));
 
+// Explicitly serve static audio files from public/audio with proper MIME types & range requests
+const audioStaticDir = path.join(process.cwd(), "public", "audio");
+if (!fs.existsSync(audioStaticDir)) {
+  fs.mkdirSync(audioStaticDir, { recursive: true });
+}
+app.use(
+  "/audio",
+  express.static(audioStaticDir, {
+    setHeaders: (res, filePath) => {
+      if (filePath.endsWith(".wav")) {
+        res.setHeader("Content-Type", "audio/wav");
+      } else if (filePath.endsWith(".mp3")) {
+        res.setHeader("Content-Type", "audio/mpeg");
+      }
+      res.setHeader("Accept-Ranges", "bytes");
+      res.setHeader("Cache-Control", "public, max-age=86400");
+    },
+  })
+);
+
 // Lazy initialization for Gemini SDK
 let geminiClient: GoogleGenAI | null = null;
 function getGeminiClient(): GoogleGenAI {
