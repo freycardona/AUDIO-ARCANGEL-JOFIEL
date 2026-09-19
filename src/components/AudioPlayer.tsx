@@ -38,6 +38,8 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ arcangel, settings }) 
   const synthCtxRef = useRef<AudioContext | null>(null);
   const synthOscRef = useRef<OscillatorNode | null>(null);
   const synthGainRef = useRef<GainNode | null>(null);
+  const voiceSourceNodeRef = useRef<AudioBufferSourceNode | null>(null);
+  const voiceGainNodeRef = useRef<GainNode | null>(null);
 
   // Update selected frequency when changing arcangel or background mode
   useEffect(() => {
@@ -215,6 +217,28 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ arcangel, settings }) 
   };
 
   // Play prayer with selected Latin Female voice (Studio Aoede/Kore or Browser Female)
+  const stopAllVoiceAudio = () => {
+    if (voiceSourceNodeRef.current) {
+      try {
+        voiceSourceNodeRef.current.stop();
+        voiceSourceNodeRef.current.disconnect();
+      } catch {}
+      voiceSourceNodeRef.current = null;
+    }
+    if (voiceAudioRef.current) {
+      try {
+        voiceAudioRef.current.pause();
+        voiceAudioRef.current.currentTime = 0;
+      } catch {}
+    }
+    browserTts.stop();
+    if (typeof window !== "undefined" && "speechSynthesis" in window) {
+      try {
+        window.speechSynthesis.cancel();
+      } catch {}
+    }
+  };
+
   const playSacredPrayer = async () => {
     const voiceType = settings.femaleVoiceType || "gemini_aoede";
 
@@ -224,7 +248,6 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ arcangel, settings }) 
       return;
     }
 
-    // Try studio Gemini female voice (Aoede, Kore, or Zephyr)
     const geminiVoiceName =
       voiceType === "gemini_kore"
         ? "Kore"
@@ -235,23 +258,66 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ arcangel, settings }) 
 
     const playAudioUrl = async (url: string) => {
       try {
-        if (!voiceAudioRef.current) {
-          voiceAudioRef.current = new Audio();
+        stopAllVoiceAudio();
+
+        // Priority 1: Web Audio API buffer playback through the same AudioContext as the frequency
+        if (!synthCtxRef.current) {
+          const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+          synthCtxRef.current = new AudioCtx();
         }
-        voiceAudioRef.current.pause();
-        voiceAudioRef.current.src = url;
-        voiceAudioRef.current.volume = Math.max(0.1, settings.voiceVolume);
-        voiceAudioRef.current.onended = () => {
+        if (synthCtxRef.current.state === "suspended") {
+          await synthCtxRef.current.resume();
+        }
+        const ctx = synthCtxRef.current;
+
+        const resp = await fetch(url);
+        if (!resp.ok) throw new Error(`HTTP ${resp.status}`);
+        const arrayBuf = await resp.arrayBuffer();
+        const decodedBuf = await ctx.decodeAudioData(arrayBuf);
+
+        const source = ctx.createBufferSource();
+        source.buffer = decodedBuf;
+
+        const gainNode = ctx.createGain();
+        gainNode.gain.setValueAtTime(Math.max(0.01, settings.voiceVolume), ctx.currentTime);
+
+        source.connect(gainNode);
+        gainNode.connect(ctx.destination);
+
+        source.onended = () => {
+          voiceSourceNodeRef.current = null;
           if (!settings.infiniteLoopAmbient) {
             setIsPlaying(false);
             stopSacredOscillator();
             if (ambientAudioRef.current) ambientAudioRef.current.pause();
           }
         };
-        await voiceAudioRef.current.play();
+
+        source.start(0);
+        voiceSourceNodeRef.current = source;
+        voiceGainNodeRef.current = gainNode;
       } catch (err) {
-        console.warn("Audio play() interrupted or rejected, falling back to Web Speech:", err);
-        playBrowserFemaleSpeech();
+        console.warn("Web Audio buffer playback failed, trying HTML5 Audio fallback:", err);
+        // Priority 2: HTML5 Audio element fallback
+        try {
+          if (!voiceAudioRef.current) {
+            voiceAudioRef.current = new Audio();
+          }
+          voiceAudioRef.current.src = url;
+          voiceAudioRef.current.volume = Math.max(0.1, settings.voiceVolume);
+          voiceAudioRef.current.onended = () => {
+            if (!settings.infiniteLoopAmbient) {
+              setIsPlaying(false);
+              stopSacredOscillator();
+              if (ambientAudioRef.current) ambientAudioRef.current.pause();
+            }
+          };
+          await voiceAudioRef.current.play();
+        } catch (e2) {
+          console.warn("HTML5 audio playback also failed, falling back to Web Speech:", e2);
+          // Priority 3: Device speech synthesis
+          playBrowserFemaleSpeech();
+        }
       }
     };
 
@@ -298,6 +364,13 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ arcangel, settings }) 
       voiceAudioRef.current.volume = settings.voiceVolume;
     }
 
+    if (voiceGainNodeRef.current && synthCtxRef.current) {
+      voiceGainNodeRef.current.gain.setValueAtTime(
+        Math.max(0.01, settings.voiceVolume),
+        synthCtxRef.current.currentTime
+      );
+    }
+
     // Audio Ducking logic: reduce background volume when voice is playing
     const effectiveAmbientVol =
       settings.audioDucking && isPlaying
@@ -319,18 +392,14 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ arcangel, settings }) 
   // Main PLAY / PAUSE Handler
   const togglePlayback = () => {
     if (isPlaying) {
-      if (voiceAudioRef.current) voiceAudioRef.current.pause();
+      stopAllVoiceAudio();
       if (ambientAudioRef.current) ambientAudioRef.current.pause();
-      browserTts.stop();
-      if (typeof window !== "undefined" && "speechSynthesis" in window) {
-        window.speechSynthesis.cancel();
-      }
       stopSacredOscillator();
       setIsPlaying(false);
     } else {
       setIsPlaying(true);
 
-      // 1. Instantly unpause Web Speech & unlock Audio within this user click event
+      // 1. Instantly unpause Web Speech & unlock AudioContext within this user click event
       if (typeof window !== "undefined" && "speechSynthesis" in window) {
         if (window.speechSynthesis.paused) {
           window.speechSynthesis.resume();
@@ -539,6 +608,10 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({ arcangel, settings }) 
           "Toca para iniciar la invocación sagrada"
         )}
       </p>
+
+      {/* Hidden DOM audio elements to ensure browser media permissions in iframes */}
+      <audio ref={voiceAudioRef} id="sacred-prayer-audio-element" preload="auto" className="hidden" />
+      <audio ref={ambientAudioRef} id="sacred-ambient-audio-element" preload="auto" loop className="hidden" />
 
       {/* Caja de Texto Desplegable con la Oración Suprema */}
       <div className="mt-6 text-neutral-300 text-xs sm:text-sm text-center italic bg-neutral-900/60 p-4 rounded-2xl border border-neutral-800/80 max-h-32 overflow-y-auto leading-relaxed z-10 font-serif">

@@ -387,6 +387,20 @@ Amén…`;
       });
     }
 
+    // Fast-fallback: If requesting Zephyr or Kore and we already have Aoede cached for this exact prayer, return the high quality studio voice immediately!
+    const aoedeHash = getCacheHash(prayerScript, "Aoede");
+    const aoedeFilePath = path.join(VOCES_CACHE_DIR, `prayer_${aoedeHash}.wav`);
+    if (fs.existsSync(aoedeFilePath) && (voice === "Zephyr" || voice === "Kore")) {
+      const stat = fs.statSync(aoedeFilePath);
+      return res.json({
+        success: true,
+        audioUrl: `/audio/voces/prayer_${aoedeHash}.wav`,
+        cached: true,
+        totalSize: stat.size,
+        voice: "Aoede",
+      });
+    }
+
     const ai = getGeminiClient();
 
     let effectiveTone = tone;
